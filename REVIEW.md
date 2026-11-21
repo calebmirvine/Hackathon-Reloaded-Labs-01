@@ -39,7 +39,7 @@ The initial single-page counter screen packed session creation, QR display, phot
 
 ## 3. Removal of Hardcoded Personal Names
 
-- All hardcoded personal names (`Alex`, `Barbara`, `Mathias`) have been removed from application source code (`app/*.py`, `app/static/*`), Excel export copy (`app/exporter.py`), and API test fixtures (`tests/test_api.py`).
+- All hardcoded personal names of store staff and owners have been removed from application source code (`app/*.py`, `app/static/*`), Excel export copy (`app/exporter.py`), and API test fixtures (`tests/test_api.py`).
 - Replaced with clean, role-based CRM/ERP terminology: **Store Staff**, **Staff Review**, **In-Hand Inspection**, **Intake Ledger**, and **Export Shot Checklist (.xlsx)**.
 - Verified continuously by an automated compliance test scanning `app/` for zero case-insensitive matches.
 

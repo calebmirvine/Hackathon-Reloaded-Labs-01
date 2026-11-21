@@ -617,7 +617,7 @@ def test_admin_settings_and_diagnostics_endpoints(api_env: dict) -> None:
 
 
 def test_zero_personal_names_across_app() -> None:
-    """No hardcoded staff/owner personal names (Alex, Barbara, Mathias) appear anywhere in app/."""
+    """No hardcoded staff or owner personal names appear anywhere in app/."""
     app_root = Path(__file__).resolve().parent.parent / "app"
     hits: list[str] = []
     for path in sorted(app_root.rglob("*")):

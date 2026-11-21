@@ -2,14 +2,14 @@
 
 # Pre-Project Notes & Stakeholder Debrief
 
-**Stakeholders to consider:** Riders/sellers, store clerk (Alex), owners (Mathias & Barbara), hackathon organizers/judges (Anu & Robin), and broader motorcycle enthusiasts.
+**Stakeholders to consider:** Riders/sellers, the store clerk, the owners, hackathon organizers/judges, and broader motorcycle enthusiasts.
 
 ---
 
 ## Hackathon Logistics
 - **Build Window:** 10:30 AM – 4:30 PM (~6 hours)
-- **Demo Setup (Anu):** Local machine demo via Microsoft Teams (mobile QR handoff + desktop view works great for live Teams screen-sharing!).
-- **Judging / Concept Signals (Robin):**
+- **Demo Setup (Organizer):** Local machine demo via Microsoft Teams (mobile QR handoff + desktop view works great for live Teams screen-sharing!).
+- **Judging / Concept Signals (Judge):**
   - Brand research & recognition
   - Tag/label extraction (brand, CE, composition)
   - Material understanding
@@ -18,14 +18,14 @@
 
 ---
 
-## Owners' Vision — Mathias & Barbara
+## Owners' Vision
 - **Mission First: Rider Safety + Sustainability + Upcycling**
   - The core goal is **getting more riders safer** and **keeping salvageable materials out of landfill**, rather than just reselling used gear for the sake of it.
   - **Rider awareness gap:** Most riders don't realize how safety gear degrades over time (hidden breakdowns, UV/wash degradation, waterproof membranes losing waterproofing). People hoard old gear instead of replacing it.
   - **Material lifespans & realities:**
     - **Good old leather** jackets/pants are often still structurally sound and worth keeping in circulation (or upcycling leather into bags/accessories if retired as riding gear).
     - **Modern textile fabrics (10–15 years old)** pose real safety/degradation concerns; functional waterproof membranes typically fail over time.
-    - **Hardware/Zippers (Barbara):** Physical wear like broken/failing zippers is immediately inspectable and crucial to jacket usability.
+    - **Hardware/Zippers:** Physical wear like broken/failing zippers is immediately inspectable and crucial to jacket usability.
     - **Cheap brands are NEVER worth consigning:** Low-abrasion cheap gear was barely protective when new and has zero consignment value. Moto Reloaded is a small startup and cannot buy every jacket — it operates as a **curated consignment platform** backed by Moto Reloaded's standards.
   - **Turning Safety & Sustainability into a Business / Sales Tool:**
     - Build an achievable **recycle / upcycle pathway** (e.g., repurposing leather into bags or other goods) for gear that shouldn't be resold as riding gear.
@@ -34,8 +34,8 @@
 
 ---
 
-## Store Clerk Workflow — Alex
-- **Current Process:** Old gear comes in -> Alex physically inspects items -> manually tracks everything in spreadsheets (OneDrive / Excel `reloaded-labs-shot-checklist.xlsx`) and physical grading sheets (`item-grading-sheet-v2.docx`).
+## Store Clerk Workflow
+- **Current Process:** Old gear comes in -> the store clerk physically inspects items -> manually tracks everything in spreadsheets (OneDrive / Excel `reloaded-labs-shot-checklist.xlsx`) and physical grading sheets (`item-grading-sheet-v2.docx`).
 - **Key Pain Points & Requirements:**
   - **Clear garment-aware shot labeling:** Distinguish context explicitly (e.g., left pocket of pants vs. left pocket of jacket, Zone 1 mapping by garment type).
   - **No universal industry standard:** Every garment is constructed differently — the app needs to apply a clear **visual legend / rubric** consistently across items rather than inventing arbitrary numeric scores.

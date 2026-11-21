@@ -55,8 +55,8 @@ Every prompt, API response, database field, UI screen, and exported summary **MU
 ## 2. Guided Flow & Stakeholders
 
 ### Stakeholders
-- **Mathias & Barbara (Owners):** Prioritize **rider safety**, **sustainability**, and **upcycling** over pushing used gear at any cost — turning retired gear into circular material upcycling (e.g., leather into bags/accessories, zipper salvage, textile recycling) and an **in-store safety & new-gear upgrade conversation**.
-- **Alex (Store Clerk):** Needs a fast, consistent intake check for jackets and pants that verifies every photo angle, flags visible damage and label details for in-hand review, and cuts manual busywork.
+- **Owners:** Prioritize **rider safety**, **sustainability**, and **upcycling** over pushing used gear at any cost — turning retired gear into circular material upcycling (e.g., leather into bags/accessories, zipper salvage, textile recycling) and an **in-store safety & new-gear upgrade conversation**.
+- **Store Clerk:** Needs a fast, consistent intake check for jackets and pants that verifies every photo angle, flags visible damage and label details for in-hand review, and cuts manual busywork.
 - **Riders / Sellers:** Need a frictionless mobile camera flow that guides every required angle and clearly explains why an item is auto-logged, queued for human review, or routed to upcycling/retirement.
 
 ### End-to-End Intake Flow (Laptop QR -> Phone HTTPS -> Live Poll)
@@ -89,8 +89,8 @@ Every prompt, API response, database field, UI screen, and exported summary **MU
    - Pure Python computes the **0–100 `"photo coverage + damage disclosure"` score** from the structured checklist JSON and enforces hard compliance gates (declared/evident crash, contamination, or Zone 1 damage/repair hard-caps the score at **`<= 49`** so compromised gear can never be auto-approved or recommended for buy-in).
    - **Outcome Bands:**
      - **`0–49` — Rejected / Retake:** Prompt retake if required angles are missing, mismatched, or blurry; decline for buy-in and route to **Upcycling / Responsible Retirement & Safe-Gear Trade-In** if crash, contamination, or Zone 1 damage is disclosed or visible.
-     - **`50–84` — Human Review:** Queued in SQLite for **Alex / Barbara in-hand physical inspection** with exact pass/fail items and reasons highlighted.
-     - **`85–100` — Auto-Approved & Logged:** Logged in SQLite as intake-ready (physical in-hand check still confirmed by staff; optional checklist/grading exports available for Alex).
+     - **`50–84` — Human Review:** Queued in SQLite for **store clerk and owner in-hand physical inspection** with exact pass/fail items and reasons highlighted.
+     - **`85–100` — Auto-Approved & Logged:** Logged in SQLite as intake-ready (physical in-hand check still confirmed by staff; optional checklist/grading exports available for the store clerk).
 
 ---
 

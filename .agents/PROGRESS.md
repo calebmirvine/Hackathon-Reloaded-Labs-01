@@ -39,3 +39,9 @@
 - [x] Remove all hardcoded personal names across `app/` and test fixtures (enforced by automated test)
 - [x] Add `app_settings` table, `/admin/settings`, `/admin/diagnostics`, OpenCLIP diagnostics, and **Frontier Agent Output & Prompt Trace** (`agent_trace` on Card 3 and Admin & Debug, zero API key leakage, Hard Compliance Gate permanently locked `<= 49`)
 - [x] Verified **26/26** offline tests (`uv run pytest -v`), all compliance audits, and live `RL01-001` Azure OpenAI `gpt-4.1` `agent_trace` smoke check (`M4_LIVE_TRACE_OK`)
+
+## Phase 6 — Milestone 5: Shop Goals, Paper Counter & Mobile Viewfinder
+- [x] Replace the dark ERP chrome with a warm paper counter (ink, copper accent, soft card shadow, no monogram)
+- [x] Put the shop goals on the counter and the phone: rider awareness, materials in circulation, and the in-store trade-in conversation — scores stay `"photo coverage"` and `"damage disclosure"` only
+- [x] Mobile Card 1 garment choice syncs with `PATCH /sessions/{id}`; inline SVG viewfinder with auto-snap and native-camera fallback
+- [x] Verified **29/29** offline tests (`uv run pytest -q`) plus phone category click-through (pants sync, viewfinder fallback, return to category)

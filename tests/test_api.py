@@ -650,3 +650,78 @@ def test_laptop_js_no_flicker_and_smart_polling() -> None:
         r"""stopPolling\s*\(\)[\s\S]{0,200}["']scored["']""",
         src,
     ), "Expected laptop.js to stop polling automatically when status === 'scored'"
+
+
+def test_patch_session_garment_type_and_404(api_env: dict) -> None:
+    """PATCH /sessions/{id} updates garment_type cleanly and returns 404 on unknown session."""
+    client: TestClient = api_env["client"]
+
+    created = client.post("/sessions", json={"garment_type": "jacket"}).json()
+    session_id = created["session_id"]
+    api_env["created_sessions"].append(session_id)
+
+    patch_resp = client.patch(f"/sessions/{session_id}", json={"garment_type": "pants"})
+    assert patch_resp.status_code == 200, patch_resp.text
+    patched = patch_resp.json()
+    assert patched["session_id"] == session_id
+    assert patched["garment_type"] == "pants"
+    assert patched["status"]
+
+    status_after = client.get(f"/status/{session_id}").json()
+    assert status_after["garment_type"] == "pants"
+
+    missing_resp = client.patch("/sessions/doesnotexist", json={"garment_type": "pants"})
+    assert missing_resp.status_code == 404
+
+    invalid_resp = client.patch(f"/sessions/{session_id}", json={"garment_type": "helmet"})
+    assert invalid_resp.status_code == 422
+
+
+def test_zero_erp_and_zero_brand_mark_across_app() -> None:
+    """Zero 'ERP' copy across app/ and zero 'brand-mark' monogram logo in app/static/."""
+    app_root = Path(__file__).resolve().parent.parent / "app"
+    erp_re = re.compile(r"\berp\b", re.IGNORECASE)
+    erp_hits: list[str] = []
+    brand_mark_hits: list[str] = []
+
+    for path in sorted(app_root.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in {".py", ".html", ".css", ".js"}:
+            continue
+        text = path.read_text(encoding="utf-8")
+        is_static = "static" in path.relative_to(app_root).parts
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            if erp_re.search(line):
+                erp_hits.append(f"{path.relative_to(app_root.parent)}:{line_no}: {line.strip()}")
+            if is_static and "brand-mark" in line.lower():
+                brand_mark_hits.append(f"{path.relative_to(app_root.parent)}:{line_no}: {line.strip()}")
+
+    assert not erp_hits, "Unexpected 'ERP' wording found in app/:\n" + "\n".join(erp_hits)
+    assert not brand_mark_hits, "Unexpected 'brand-mark' logo found in app/static/:\n" + "\n".join(brand_mark_hits)
+
+
+def test_mobile_category_card_inline_viewfinder_and_dom_integrity() -> None:
+    """phone.html has Card 1 category stage + inline SVG camera viewfinder + fallbacks, and all DOM IDs resolve."""
+    static_dir = Path(__file__).resolve().parent.parent / "app" / "static"
+    phone_html = (static_dir / "phone.html").read_text(encoding="utf-8")
+    phone_js = (static_dir / "phone.js").read_text(encoding="utf-8")
+
+    for required_id in (
+        'id="stage-category"',
+        'id="live-camera-video"',
+        'id="viewfinder-svg"',
+        'id="camera-input"',
+        'id="library-input"',
+    ):
+        assert required_id in phone_html, f"Missing {required_id} in app/static/phone.html"
+
+    assert "jacket" in phone_html.lower() and "pants" in phone_html.lower()
+    assert "getUserMedia" in phone_js, "Expected inline getUserMedia camera support in phone.js"
+    assert "PATCH" in phone_js, "Expected PATCH /sessions/<id> category sync in phone.js"
+
+    for html_name, js_name in (("index.html", "laptop.js"), ("phone.html", "phone.js")):
+        html_src = (static_dir / html_name).read_text(encoding="utf-8")
+        js_src = (static_dir / js_name).read_text(encoding="utf-8")
+        html_ids = set(re.findall(r'\bid="([^"]+)"', html_src))
+        js_ids = set(re.findall(r'getElementById\("([^"]+)"\)', js_src))
+        missing = sorted(js_ids - html_ids)
+        assert not missing, f"Missing DOM IDs referenced by {js_name} in {html_name}: {missing}"

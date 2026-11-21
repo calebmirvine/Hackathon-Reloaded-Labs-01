@@ -15,20 +15,11 @@
 </head>
 <body>
   <main class="phone-shell">
-    <!-- Top Compact Brand Bar -->
+    <!-- Top Compact Editorial Wordmark Bar -->
     <header class="phone-header">
       <div class="brand-lockup">
-        <div class="brand-mark" style="width: 34px; height: 34px; border-radius: 8px;" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 17V7l5 6 5-6v10" />
-            <path d="M18 17V7h2.5a2.5 2.5 0 0 1 0 5H18" />
-            <path d="M19.5 12 22 17" />
-          </svg>
-        </div>
-        <div>
-          <div class="brand-title" style="font-size: 0.92rem;">Moto Reloaded</div>
-          <div class="brand-subtitle">Guided Intake Capture</div>
-        </div>
+        <div class="brand-title">Moto Reloaded</div>
+        <div class="brand-subtitle">Awareness · Circulation · Trade-in</div>
       </div>
 
       <span id="phone-session-pill" class="pill pill-black mono">Session —</span>
@@ -48,56 +39,103 @@
 
     <!-- Active Guided Capture Shell -->
     <div id="phone-capture-view" class="stack hidden">
-      <!-- Compact Category + Progress Header -->
-      <section class="surface-card stack" style="padding: 0.9rem 1rem; gap: 0.72rem;">
+      <!-- Compact Progress Header (visible on Photo / Disclosure / Complete steps) -->
+      <section id="phone-progress-card" class="surface-card stack hidden" style="padding: 0.85rem 1rem; gap: 0.68rem;">
         <div class="row-between">
-          <div>
-            <span class="field-label" style="margin-bottom: 0.1rem;">Garment Category</span>
-            <p style="font-size: 0.76rem; color: var(--fg-muted);">Tailors Zone-1 framing prompts</p>
-          </div>
-          <div class="segmented" role="group" aria-label="Select garment type">
-            <button
-              type="button"
-              class="segmented-btn is-selected"
-              data-phone-garment="jacket"
-              aria-pressed="true"
-            >
-              Jacket
-            </button>
-            <button
-              type="button"
-              class="segmented-btn"
-              data-phone-garment="pants"
-              aria-pressed="false"
-            >
-              Pants
-            </button>
-          </div>
+          <button id="btn-change-category" type="button" class="btn btn-ghost btn-sm" style="min-height: 36px; padding: 0.3rem 0.78rem;">
+            ← <span id="phone-garment-chip-label">Jacket</span>
+          </button>
+          <span id="phone-progress-text" class="pill pill-black tabular">0 / 6 captured</span>
         </div>
 
-        <div class="score-bar-row">
-          <div class="score-bar-head">
-            <span>Photo Coverage Progress</span>
-            <span id="phone-progress-text" class="tabular">0 / 6 captured</span>
-          </div>
-          <div class="progress-track">
-            <div id="phone-progress-bar" class="progress-fill is-approve" style="width: 0%;"></div>
-          </div>
+        <div class="progress-track">
+          <div id="phone-progress-bar" class="progress-fill is-approve" style="width: 0%;"></div>
         </div>
 
         <!-- Compact Angle Stepper Chips -->
         <nav id="phone-stepper" class="stepper-strip" aria-label="Capture steps"></nav>
       </section>
 
-      <!-- Single Focal Stacked Tinder-Style Card Stage -->
+      <!-- Single Focal Stacked Card Deck -->
       <div class="phone-deck-wrap">
         <!-- =================================================================
-             PHOTO ANGLE CARD (Steps 1–6 Required + Step 7 Defect)
+             CARD 1: DEDICATED GARMENT CATEGORY SELECTION (#stage-category)
              ================================================================= -->
-        <section id="stage-photo" class="capture-stage" aria-live="polite">
+        <section id="stage-category" class="capture-stage" aria-label="Choose Garment Category">
+          <div>
+            <div class="section-kicker">Step 1 · Garment Category</div>
+            <h1 class="section-title">What gear are you photographing?</h1>
+            <p class="section-subtitle">
+              Jackets and pants only. These photos document coverage and damage for the counter.
+              They do not test protection.
+            </p>
+          </div>
+
+          <ul class="phone-goals">
+            <li><strong>Awareness.</strong> Age, labels, and visible wear stay on the record.</li>
+            <li><strong>Circulation.</strong> Gear that should not be bought in can still be upcycled.</li>
+            <li><strong>The conversation.</strong> A decline opens a trade-in talk, not a dead end.</li>
+          </ul>
+
+          <div class="phone-category-stack">
+            <button
+              id="btn-phone-pick-jacket"
+              type="button"
+              class="category-choice"
+              data-phone-category="jacket"
+            >
+              <div class="row-between" style="width: 100%;">
+                <div class="category-icon-box" aria-hidden="true">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 4 4 7l-1 6 3 1 1-4v10h10V10l1 4 3-1-1-6-4-3" />
+                    <path d="M9 4a3 3 0 0 0 6 0" />
+                    <path d="M12 7v13" />
+                  </svg>
+                </div>
+                <span id="badge-phone-jacket" class="pill pill-cream hidden">Counter Selected</span>
+              </div>
+              <div>
+                <div class="category-choice-title">Motorcycle Jacket</div>
+                <p class="category-choice-zones">
+                  Zone 1 guides: Shoulders, elbows/forearms, and upper back.
+                </p>
+              </div>
+              <span class="category-choice-cta">Capture Jacket Angles →</span>
+            </button>
+
+            <button
+              id="btn-phone-pick-pants"
+              type="button"
+              class="category-choice"
+              data-phone-category="pants"
+            >
+              <div class="row-between" style="width: 100%;">
+                <div class="category-icon-box" aria-hidden="true">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M6 3h12l1 18h-4.5L12 10.5 9.5 21H5L6 3Z" />
+                    <path d="M6 7h12" />
+                  </svg>
+                </div>
+                <span id="badge-phone-pants" class="pill pill-cream hidden">Counter Selected</span>
+              </div>
+              <div>
+                <div class="category-choice-title">Motorcycle Pants</div>
+                <p class="category-choice-zones">
+                  Zone 1 guides: Hips/outer thighs, knees, and seat area.
+                </p>
+              </div>
+              <span class="category-choice-cta">Capture Pants Angles →</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- =================================================================
+             PHOTO ANGLE CARD WITH PHOTO-ID SVG VIEWFINDER + AUTO-CAPTURE
+             ================================================================= -->
+        <section id="stage-photo" class="capture-stage hidden" aria-live="polite">
           <div class="row-between">
             <div>
-              <div id="step-kicker" class="section-kicker">Step 1 of 6 · Required</div>
+              <div id="step-kicker" class="section-kicker">Required Angle 1 of 6</div>
               <h1 id="step-title" class="section-title">Front Exterior</h1>
             </div>
             <span id="step-status-pill" class="pill pill-neutral">Required</span>
@@ -105,16 +143,54 @@
 
           <div id="step-hint" class="hint-card"></div>
 
-          <!-- Preview Frame (Parchment Backing) -->
-          <div class="phone-preview-frame">
-            <img id="step-preview-img" class="hidden" src="" alt="Captured angle preview" />
-            <div id="step-guide-empty" class="phone-guide-empty">
-              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-                <path d="M4 7h3l2-2h6l2 2h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" />
-                <circle cx="12" cy="13" r="3.5" />
-              </svg>
+          <!-- In-Line Photo-ID SVG Viewfinder Box -->
+          <div id="viewfinder-box" class="viewfinder-box">
+            <video
+              id="live-camera-video"
+              class="viewfinder-video hidden"
+              playsinline
+              autoplay
+              muted
+            ></video>
+
+            <img
+              id="step-preview-img"
+              class="viewfinder-preview hidden"
+              src=""
+              alt="Captured angle preview"
+            />
+
+            <!-- Dynamic per-(garment, angle) SVG Silhouette & Corner Brackets -->
+            <svg
+              id="viewfinder-svg"
+              class="viewfinder-svg"
+              viewBox="0 0 400 300"
+              preserveAspectRatio="xMidYMid meet"
+              aria-hidden="true"
+            ></svg>
+
+            <!-- Fallback Guide Text (when camera stream unavailable) -->
+            <div id="step-guide-empty" class="phone-guide-empty hidden">
               <strong id="step-empty-label">Ready for Front photo</strong>
-              <span style="font-size: 0.82rem;">Lay garment flat with impact protectors removed.</span>
+              <span style="font-size: 0.8rem;">Lay garment flat with impact protectors removed.</span>
+            </div>
+
+            <!-- Top HUD: Alignment / Sharpness Status + Auto-Snap Toggle -->
+            <div id="viewfinder-hud-top" class="viewfinder-hud-top">
+              <span id="viewfinder-hud-pill" class="viewfinder-hud-pill">Starting camera…</span>
+              <button
+                id="btn-autosnap-toggle"
+                type="button"
+                class="viewfinder-toggle-btn is-on"
+                aria-pressed="true"
+              >
+                Auto-Snap: ON
+              </button>
+            </div>
+
+            <!-- Steady Lock-On Progress Bar -->
+            <div id="viewfinder-lock-track" class="viewfinder-lock-track">
+              <div id="viewfinder-lock-bar" class="viewfinder-lock-fill"></div>
             </div>
           </div>
 
@@ -136,7 +212,7 @@
             <div id="clip-feedback-actions" class="row-wrap"></div>
           </div>
 
-          <!-- Native Camera & Library Inputs -->
+          <!-- Native Camera Fallback & Photo Library Inputs -->
           <input
             id="camera-input"
             type="file"
@@ -151,9 +227,9 @@
             class="sr-only"
           />
 
-          <div class="stack" style="gap: 0.58rem;">
-            <button id="btn-take-photo" type="button" class="btn btn-primary btn-lg btn-block">
-              Take Photo
+          <div class="stack" style="gap: 0.56rem;">
+            <button id="btn-snap-photo" type="button" class="btn btn-primary btn-lg btn-block">
+              Snap Photo
             </button>
             <button id="btn-choose-library" type="button" class="btn btn-secondary btn-block">
               Choose from Photo Library

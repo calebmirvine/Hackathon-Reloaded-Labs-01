@@ -143,6 +143,7 @@ const els = {
   buyinStatusPill: document.getElementById("buyin-status-pill"),
   decisionTitle: document.getElementById("decision-title"),
   decisionSummary: document.getElementById("decision-summary"),
+  decisionGoal: document.getElementById("decision-goal"),
   gaugeA11y: document.getElementById("gauge-a11y"),
   gaugeCircle: document.getElementById("gauge-circle"),
   scoreTotal: document.getElementById("score-total"),
@@ -357,6 +358,7 @@ function decisionMeta(decision, scoreValue = null) {
         title: "Auto-Approved & Logged",
         buyInText: "Buy-In Eligible · Confirm In-Hand",
         buyInClass: "pill-approve",
+        goalText: "Log it for buy-in. Staff still confirm the garment in hand before any offer.",
       };
     case "human_review":
       return {
@@ -366,6 +368,7 @@ function decisionMeta(decision, scoreValue = null) {
         title: "Pending Staff Review",
         buyInText: "Held for In-Hand Inspection",
         buyInClass: "pill-review",
+        goalText: "Borderline wear stays with staff. In-hand inspection chooses circulation or retirement.",
       };
     case "rejected_retake":
       return {
@@ -375,6 +378,7 @@ function decisionMeta(decision, scoreValue = null) {
         title: "Retake Required (0–49)",
         buyInText: "Not Ready · Retake Flagged Angles",
         buyInClass: "pill-reject",
+        goalText: "Photo coverage is incomplete. Retake the flagged angles before any intake decision.",
       };
     case "rejected_upcycle":
       return {
@@ -384,6 +388,7 @@ function decisionMeta(decision, scoreValue = null) {
         title: "Declined for Buy-In — Upcycle Pathway",
         buyInText: "Declined · Route to Upcycling",
         buyInClass: "pill-reject",
+        goalText: "Declined for buy-in. Keep the materials in circulation and open the new-gear trade-in conversation.",
       };
     default: {
       const n = Number(scoreValue);
@@ -396,6 +401,7 @@ function decisionMeta(decision, scoreValue = null) {
         title: "Pending Evaluation",
         buyInText: "Not Scored Yet",
         buyInClass: "pill-neutral",
+        goalText: "Finish photo coverage and damage disclosure before choosing buy-in, review, or upcycling.",
       };
     }
   }
@@ -1076,6 +1082,7 @@ function renderAuditDossier(score) {
   els.buyinStatusPill.textContent = meta.buyInText;
   els.decisionTitle.textContent = score.decision_label || meta.title;
   els.decisionSummary.textContent = score.summary || "";
+  els.decisionGoal.textContent = meta.goalText || "";
 
   // Radial Gauge
   const circumference = 2 * Math.PI * 50;
@@ -1876,7 +1883,7 @@ function openLightbox(url, title, subtitle) {
 // ============================================================================
 
 function bindEvents() {
-  // ERP workspace tabs
+  // Workspace tabs
   els.tabs.forEach((btn) => {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   });

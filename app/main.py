@@ -500,6 +500,23 @@ def get_sessions(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]
     return {"sessions": enriched}
 
 
+@app.patch("/sessions/{session_id}")
+def update_intake_session_category(
+    session_id: str,
+    payload: CreateSessionRequest,
+) -> dict[str, Any]:
+    """Update garment category ('jacket' | 'pants') for an active intake session."""
+    _ensure_db()
+    updated = db.update_session(session_id, garment_type=payload.garment_type)
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+    return {
+        "session_id": updated["session_id"],
+        "garment_type": updated["garment_type"],
+        "status": updated["status"],
+    }
+
+
 @app.post("/upload")
 async def upload_photo(
     session_id: str = Form(...),
@@ -855,7 +872,7 @@ def load_demo_sample(payload: LoadSampleRequest) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 @app.get("/admin/settings")
 def get_admin_settings() -> dict[str, Any]:
-    """Return runtime intake ERP settings with permanently locked hard-gate flag."""
+    """Return runtime intake settings with permanently locked hard-gate flag."""
     _ensure_db()
     return {
         "settings": db.get_settings(),
@@ -866,7 +883,7 @@ def get_admin_settings() -> dict[str, Any]:
 
 @app.post("/admin/settings")
 def save_admin_settings(payload: AdminSettingsUpdate) -> dict[str, Any]:
-    """Validate and persist runtime intake ERP settings in SQLite."""
+    """Validate and persist runtime intake settings in SQLite."""
     _ensure_db()
     patch = payload.model_dump(exclude_none=True)
     if "public_base_url" in patch:

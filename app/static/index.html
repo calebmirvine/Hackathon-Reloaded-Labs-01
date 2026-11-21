@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Moto Reloaded · Intake ERP</title>
+  <title>Moto Reloaded · Gear Intake</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
@@ -17,20 +17,11 @@
   <header class="site-header">
     <div class="header-inner">
       <div class="brand-lockup">
-        <div class="brand-mark" aria-hidden="true">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 17V7l5 6 5-6v10" />
-            <path d="M18 17V7h2.5a2.5 2.5 0 0 1 0 5H18" />
-            <path d="M19.5 12 22 17" />
-          </svg>
-        </div>
-        <div>
-          <div class="brand-title">Moto Reloaded · Intake ERP</div>
-          <div class="brand-subtitle">Photo Coverage &amp; Damage Disclosure Workflow</div>
-        </div>
+        <div class="brand-title">Moto Reloaded</div>
+        <div class="brand-subtitle">Awareness · Circulation · The in-store conversation</div>
       </div>
 
-      <nav class="header-nav" aria-label="ERP Workspaces" role="tablist">
+      <nav class="header-nav" aria-label="Counter workspaces" role="tablist">
         <button
           id="tab-intake"
           class="nav-tab is-active"
@@ -88,10 +79,36 @@
     <div id="global-toast" class="toast-banner hidden" role="status" aria-live="polite"></div>
 
     <!-- =====================================================================
-         WORKSPACE 1: NEW INTAKE — 3-STEP TINDER-STYLE FOCAL CARD DECK
+         WORKSPACE 1: NEW INTAKE — 3-STEP FOCAL CARD DECK
          ===================================================================== -->
     <section id="panel-intake" role="tabpanel" aria-labelledby="tab-intake" class="wizard-shell">
-      <!-- 3-Step Card-Deck Progress Bar -->
+      <section class="goals-band" aria-label="Shop goals for every intake">
+        <p class="goals-lead">
+          Every jacket and pant on this counter is checked for
+          <strong>photo coverage</strong> and <strong>damage disclosure</strong>.
+          The record documents what is visible and what the rider reports.
+          It does not test or certify protection. Three shop goals stay in front of the decision.
+        </p>
+        <ol class="goals-list">
+          <li class="goals-card">
+            <span class="goals-index">01</span>
+            <h2>Rider awareness</h2>
+            <p>Age, wash history, labels, and visible wear stay on the record so old gear is not quietly kept in rotation.</p>
+          </li>
+          <li class="goals-card">
+            <span class="goals-index">02</span>
+            <h2>Materials in circulation</h2>
+            <p>A decline is not a dead end. Leather can become goods, zippers can be salvaged, and textiles can be recycled.</p>
+          </li>
+          <li class="goals-card">
+            <span class="goals-index">03</span>
+            <h2>The in-store conversation</h2>
+            <p>When buy-in is the wrong call, the same visit opens a trade-in talk toward new riding gear.</p>
+          </li>
+        </ol>
+      </section>
+
+      <!-- 3-Step Progress Stepper -->
       <nav class="wizard-stepper" aria-label="Intake steps">
         <button
           id="wiz-step-1"
@@ -134,9 +151,10 @@
         <article id="card-step-1" class="deck-card deck-card-sm stack" aria-label="Step 1: Select Garment Category">
           <div style="text-align: center;">
             <div class="section-kicker">Step 1 of 3 · New Intake Record</div>
-            <h1 class="section-title" style="font-size: 1.55rem;">Select Garment Category</h1>
+            <h1 class="section-title">What came in today?</h1>
             <p class="section-subtitle">
-              Choose the garment type to generate a mobile QR capture link and apply the matching Zone-1 rubric.
+              Jackets and pants only. The phone walks every required angle.
+              Buy-in, in-hand review, or upcycling — the score only sorts the conversation.
             </p>
           </div>
 
@@ -396,6 +414,7 @@
               </div>
               <div id="decision-title" class="decision-title">—</div>
               <p id="decision-summary" class="decision-sub">—</p>
+              <p id="decision-goal" class="decision-goal">—</p>
             </div>
 
             <!-- 0-100 SVG Radial Gauge + Breakdown Bars -->
@@ -507,7 +526,7 @@
               </div>
             </div>
 
-            <!-- Frontier Agent Output & Prompt Trace Card (Right on Card 3!) -->
+            <!-- Frontier Agent Output & Prompt Trace Card -->
             <section id="audit-trace-card" class="trace-card" aria-label="Frontier Agent Output and Prompt Trace">
               <div class="row-between">
                 <div>
@@ -590,7 +609,7 @@
             </div>
           </div>
 
-          <!-- Bottom ERP Action Bar -->
+          <!-- Bottom Action Bar -->
           <div class="deck-footer-bar">
             <div class="row-wrap">
               <button id="btn-audit-back-capture" type="button" class="btn btn-ghost btn-sm">
@@ -646,7 +665,7 @@
       <div class="surface-card stack">
         <div class="section-head">
           <div>
-            <div class="section-kicker">SQLite ERP Ledger</div>
+            <div class="section-kicker">Intake Records</div>
             <h2 class="section-title">Intake Ledger</h2>
             <p class="section-subtitle">
               Open any session straight into the Verification &amp; Audit Dossier or export its
@@ -706,7 +725,7 @@
         <form id="admin-settings-form" class="surface-card stack">
           <div class="row-between">
             <div>
-              <div class="section-kicker">Persisted ERP Settings</div>
+              <div class="section-kicker">Runtime Settings</div>
               <h3 class="section-title" style="font-size: 1.15rem;">Runtime Configuration</h3>
             </div>
             <span class="pill pill-reject">Hard Compliance Gate &lt;= 49 · Locked ON</span>

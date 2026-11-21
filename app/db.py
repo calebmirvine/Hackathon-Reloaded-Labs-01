@@ -3,7 +3,7 @@
 
 Stores intake sessions, uploaded photo metadata and angle-check results,
 0-100 photo coverage + damage disclosure score records, the human review
-queue for store staff in-hand inspection, and validated runtime ERP settings.
+queue for store staff in-hand inspection, and validated runtime intake settings.
 """
 
 from __future__ import annotations

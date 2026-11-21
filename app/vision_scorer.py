@@ -12,8 +12,10 @@ import base64
 import io
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from openai import AzureOpenAI
@@ -287,7 +289,16 @@ def _normalize_vision_response(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _empty_photos_fallback(garment_type: str) -> dict[str, Any]:
+def _empty_photos_fallback(
+    garment_type: str,
+    *,
+    deployment: str = "gpt-4.1",
+    api_version: str = "2024-12-01-preview",
+    endpoint_host: str | None = None,
+    temperature: float = 0.1,
+    max_tokens: int = 1800,
+    user_prompt_summary: str = "",
+) -> dict[str, Any]:
     """Return a clean structured response when no readable photos were supplied."""
     return {
         "checklist": [
@@ -331,6 +342,27 @@ def _empty_photos_fallback(garment_type: str) -> dict[str, Any]:
         "contradiction_flagged": False,
         "contradiction_reason": None,
         "summary": f"No readable {garment_type} photos were available for photo coverage and damage disclosure review.",
+        "agent_trace": {
+            "provider": "Local Fallback",
+            "agent_label": "Local Empty-Photo Guard",
+            "deployment": deployment,
+            "model_returned": "local-empty-photo-guard",
+            "api_version": api_version,
+            "endpoint_host": endpoint_host,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "latency_ms": 0,
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+            "clip_stage1_model": "OpenCLIP ViT-B-32 (laion2b_s34b_b79k, frozen inference)",
+            "photos_evaluated": 0,
+            "system_prompt": _SYSTEM_PROMPT,
+            "user_prompt": user_prompt_summary,
+            "raw_response": "{}",
+        },
     }
 
 
@@ -348,9 +380,24 @@ def score_photos(
     photos: list[dict[str, Any]],
     garment_type: str,
     disclosure: dict[str, Any] | None = None,
+    *,
+    runtime_settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Evaluate intake photos against Moto Reloaded's rubric via Azure OpenAI (swappable provider boundary)."""
     load_dotenv()
+
+    rs = dict(runtime_settings or {})
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    api_key = os.getenv("AZURE_OPENAI_API_KEY")
+    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+    deployment = str(
+        rs.get("vision_deployment")
+        or os.getenv("AZURE_OPENAI_VISION_DEPLOYMENT")
+        or "gpt-4.1"
+    ).strip()
+    temperature = float(rs["temperature"]) if rs.get("temperature") is not None else 0.1
+    max_tokens = int(rs["max_tokens"]) if rs.get("max_tokens") is not None else 1800
+    endpoint_host = urlparse(endpoint).hostname if endpoint else None
 
     normalized_garment = (garment_type or "jacket").strip().lower()
     if normalized_garment not in {"jacket", "pants"}:
@@ -365,18 +412,15 @@ def score_photos(
         )
     )
 
-    user_content: list[dict[str, Any]] = [
-        {
-            "type": "text",
-            "text": (
-                f"Garment Type: {normalized_garment.upper()}\n"
-                f"Zone 1 Areas: {zone1_desc}\n"
-                f"Rider Disclosure: {json.dumps(disclosure or {}, ensure_ascii=False)}\n"
-                "Below are the captured intake photos along with their Stage-1 OpenCLIP angle verification "
-                "and closest reference matches. Evaluate every photo coverage and damage disclosure item strictly."
-            ),
-        }
-    ]
+    intro_text = (
+        f"Garment Type: {normalized_garment.upper()}\n"
+        f"Zone 1 Areas: {zone1_desc}\n"
+        f"Rider Disclosure: {json.dumps(disclosure or {}, ensure_ascii=False)}\n"
+        "Below are the captured intake photos along with their Stage-1 OpenCLIP angle verification "
+        "and closest reference matches. Evaluate every photo coverage and damage disclosure item strictly."
+    )
+    user_content: list[dict[str, Any]] = [{"type": "text", "text": intro_text}]
+    prompt_summary_lines: list[str] = [intro_text]
 
     attached_count = 0
     for idx, photo in enumerate(photos or [], start=1):
@@ -398,35 +442,42 @@ def score_photos(
             for r in matched_refs[:3]
         ) or "none"
 
+        max_edge = 1536 if angle in {"labels", "defect"} else 1024
+        detail = "high" if angle in {"labels", "defect"} else "auto"
         data_url = _encode_image_for_vision(str(filepath), angle)
-        user_content.append(
-            {
-                "type": "text",
-                "text": (
-                    f"Photo #{idx} — Requested slot: '{angle}' | "
-                    f"OpenCLIP predicted: '{predicted}' (sim={float(confidence):.2f}, angle_ok={bool(angle_ok)}) | "
-                    f"Closest references: {ref_summary}"
-                ),
-            }
+
+        attached_count += 1
+        meta_line = (
+            f"Photo #{attached_count} — Requested slot: '{angle}' | "
+            f"OpenCLIP predicted: '{predicted}' (sim={float(confidence):.2f}, angle_ok={bool(angle_ok)}) | "
+            f"Closest references: {ref_summary}"
         )
+        user_content.append({"type": "text", "text": meta_line})
         user_content.append(
             {
                 "type": "image_url",
                 "image_url": {
                     "url": data_url,
-                    "detail": "high" if angle in {"labels", "defect"} else "auto",
+                    "detail": detail,
                 },
             }
         )
-        attached_count += 1
+        prompt_summary_lines.append(
+            f"{meta_line}\n[Image #{attached_count}: slot={angle}, max_edge={max_edge}px, detail={detail}]"
+        )
+
+    user_prompt_summary = "\n\n".join(prompt_summary_lines)
 
     if attached_count == 0:
-        return _empty_photos_fallback(normalized_garment)
-
-    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    api_key = os.getenv("AZURE_OPENAI_API_KEY")
-    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
-    deployment = os.getenv("AZURE_OPENAI_VISION_DEPLOYMENT", "gpt-4.1")
+        return _empty_photos_fallback(
+            normalized_garment,
+            deployment=deployment,
+            api_version=api_version,
+            endpoint_host=endpoint_host,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            user_prompt_summary=user_prompt_summary,
+        )
 
     if not endpoint or not api_key:
         raise RuntimeError(
@@ -439,6 +490,7 @@ def score_photos(
         api_version=api_version,
     )
 
+    t0 = time.perf_counter()
     response = client.chat.completions.create(
         model=deployment,
         messages=[
@@ -446,10 +498,35 @@ def score_photos(
             {"role": "user", "content": user_content},
         ],
         response_format={"type": "json_object"},
-        temperature=0.1,
-        max_tokens=1800,
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
+    latency_ms = round((time.perf_counter() - t0) * 1000)
 
     content = response.choices[0].message.content or "{}"
     parsed = json.loads(content)
-    return _normalize_vision_response(parsed)
+    normalized = _normalize_vision_response(parsed)
+
+    usage = getattr(response, "usage", None)
+    normalized["agent_trace"] = {
+        "provider": "Azure OpenAI",
+        "agent_label": "Azure OpenAI Vision Rubric Agent",
+        "deployment": deployment,
+        "model_returned": getattr(response, "model", None) or deployment,
+        "api_version": api_version,
+        "endpoint_host": endpoint_host,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "latency_ms": latency_ms,
+        "usage": {
+            "prompt_tokens": getattr(usage, "prompt_tokens", None),
+            "completion_tokens": getattr(usage, "completion_tokens", None),
+            "total_tokens": getattr(usage, "total_tokens", None),
+        },
+        "clip_stage1_model": "OpenCLIP ViT-B-32 (laion2b_s34b_b79k, frozen inference)",
+        "photos_evaluated": attached_count,
+        "system_prompt": _SYSTEM_PROMPT,
+        "user_prompt": user_prompt_summary,
+        "raw_response": content,
+    }
+    return normalized

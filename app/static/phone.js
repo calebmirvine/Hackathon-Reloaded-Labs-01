@@ -100,7 +100,7 @@ const state = {
   sessionId: null,
   garmentType: "jacket",
   currentStepIndex: 0,
-  photosByAngle: new Map(), // front..labels -> photo object
+  photosByAngle: new Map(),
   defectPhotos: [],
   lastFeedbackByAngle: new Map(),
   isUploading: false,
@@ -198,6 +198,12 @@ function formatPct(value) {
   return `${Math.max(0, Math.min(100, pct))}%`;
 }
 
+function replayDeckCardAnimation(el) {
+  el.style.animation = "none";
+  void el.offsetWidth;
+  el.style.animation = "";
+}
+
 let toastTimer = null;
 function showToast(message, variant = "info", durationMs = 4500) {
   els.toast.className = "toast-banner";
@@ -266,10 +272,9 @@ async function loadInitialSession() {
       renderCompleteScreen(null);
       startScorePolling();
     } else {
-      // Jump to first uncaptured required angle if resuming mid-session
       const firstMissingIdx = REQUIRED_ANGLES.findIndex((a) => !state.photosByAngle.has(a));
       state.currentStepIndex = firstMissingIdx >= 0 ? firstMissingIdx : REQUIRED_ANGLES.length;
-      renderStep();
+      renderStep({ animate: false });
     }
   } catch (err) {
     showErrorView(`Session "${sid}" could not be loaded: ${err.message}`);
@@ -312,7 +317,7 @@ function hydrateFromStatus(data) {
 }
 
 // ============================================================================
-// Rendering Guided Capture Steps
+// Rendering Guided Capture Card Deck
 // ============================================================================
 
 function setGarmentType(type, { skipRender = false } = {}) {
@@ -323,7 +328,7 @@ function setGarmentType(type, { skipRender = false } = {}) {
     btn.setAttribute("aria-pressed", String(active));
   });
   if (!skipRender && !state.submitted) {
-    renderStep();
+    renderStep({ animate: false });
   }
 }
 
@@ -366,12 +371,17 @@ function renderProgressAndStepper() {
       stopScorePolling();
       state.submitted = false;
       state.currentStepIndex = Number(btn.dataset.stepIndex);
-      renderStep();
+      renderStep({ animate: true });
     });
   });
+
+  const activeChip = els.stepper.querySelector(".step-chip.is-current");
+  if (activeChip && typeof activeChip.scrollIntoView === "function") {
+    activeChip.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }
 }
 
-function renderStep() {
+function renderStep({ animate = false } = {}) {
   renderProgressAndStepper();
 
   const step = STEPS[state.currentStepIndex];
@@ -380,12 +390,14 @@ function renderStep() {
   if (step.key === "disclosure") {
     els.stagePhoto.classList.add("hidden");
     els.stageDisclosure.classList.remove("hidden");
+    if (animate) replayDeckCardAnimation(els.stageDisclosure);
     renderDisclosureStep();
     return;
   }
 
   els.stageDisclosure.classList.add("hidden");
   els.stagePhoto.classList.remove("hidden");
+  if (animate) replayDeckCardAnimation(els.stagePhoto);
 
   const isDefect = step.key === "defect";
   els.stepKicker.textContent = step.required
@@ -401,10 +413,12 @@ function renderStep() {
     : state.photosByAngle.get(step.key);
 
   if (existingPhoto?.photo_url) {
-    const cacheUrl = `${existingPhoto.photo_url}?t=${encodeURIComponent(
-      existingPhoto.created_at || existingPhoto.id || Date.now()
+    const cacheUrl = `${existingPhoto.photo_url}?v=${encodeURIComponent(
+      existingPhoto.id || existingPhoto.created_at || "1"
     )}`;
-    els.stepPreviewImg.src = cacheUrl;
+    if (els.stepPreviewImg.getAttribute("src") !== cacheUrl) {
+      els.stepPreviewImg.src = cacheUrl;
+    }
     els.stepPreviewImg.alt = `${step.title} uploaded preview`;
     els.stepPreviewImg.classList.remove("hidden");
     els.stepGuideEmpty.classList.add("hidden");
@@ -416,7 +430,6 @@ function renderStep() {
       : `Ready for ${step.title} photo`;
   }
 
-  // Status pill
   if (isDefect) {
     els.stepStatusPill.className =
       state.defectPhotos.length > 0 ? "pill pill-approve" : "pill pill-neutral";
@@ -433,7 +446,6 @@ function renderStep() {
     els.stepStatusPill.textContent = "Required";
   }
 
-  // Defect multi-shot gallery
   if (isDefect && state.defectPhotos.length > 0) {
     els.defectGallery.classList.remove("hidden");
     els.defectGallery.innerHTML = state.defectPhotos
@@ -451,7 +463,6 @@ function renderStep() {
     els.defectGallery.innerHTML = "";
   }
 
-  // Primary CTA label
   if (isDefect) {
     els.btnTakePhoto.textContent =
       state.defectPhotos.length > 0
@@ -461,7 +472,6 @@ function renderStep() {
     els.btnTakePhoto.textContent = existingPhoto ? `Retake ${step.title}` : `Take ${step.title} Photo`;
   }
 
-  // Previous / Next labels
   els.btnPrevStep.disabled = state.currentStepIndex === 0;
   if (isDefect) {
     els.btnNextStep.textContent =
@@ -472,7 +482,6 @@ function renderStep() {
     els.btnNextStep.textContent = "Next Angle →";
   }
 
-  // Instant OpenCLIP Feedback Banner
   renderClipFeedback(step.key);
 }
 
@@ -524,7 +533,7 @@ function renderClipFeedback(angleKey) {
 function advanceStep() {
   if (state.currentStepIndex < STEPS.length - 1) {
     state.currentStepIndex += 1;
-    renderStep();
+    renderStep({ animate: true });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 }
@@ -538,7 +547,6 @@ async function handleFileSelected(file) {
   const step = STEPS[state.currentStepIndex];
   if (!step || step.key === "disclosure") return;
 
-  // Immediate local preview
   const localUrl = URL.createObjectURL(file);
   els.stepPreviewImg.src = localUrl;
   els.stepPreviewImg.classList.remove("hidden");
@@ -562,6 +570,7 @@ async function handleFileSelected(file) {
     });
 
     const photoRecord = {
+      id: Date.now(),
       angle: res.angle,
       photo_url: res.photo_url,
       angle_ok: Boolean(res.angle_ok),
@@ -583,7 +592,7 @@ async function handleFileSelected(file) {
       expected_similarity: res.expected_similarity,
     });
 
-    renderStep();
+    renderStep({ animate: false });
   } catch (err) {
     showToast(`Upload failed: ${err.message}`, "error", 6000);
   } finally {
@@ -721,16 +730,16 @@ function renderCompleteScreen(score) {
   const dmg = Math.max(0, Math.min(50, Number(score.damage_disclosure_score ?? 0)));
 
   let tone = "review";
-  let pillText = "50–84 · Human Review";
+  let pillText = "Pending Staff Review";
   if (score.decision === "auto_approved") {
     tone = "approve";
-    pillText = "85–100 · Auto-Approved & Logged";
+    pillText = "Auto-Approved & Logged";
   } else if (score.decision === "rejected_retake") {
     tone = "reject";
-    pillText = "0–49 · Photo Retake Required";
+    pillText = "Photo Retake Required";
   } else if (score.decision === "rejected_upcycle") {
     tone = "reject";
-    pillText = "0–49 · Declined for Buy-In";
+    pillText = "Declined for Buy-In";
   }
 
   els.phoneDecisionBanner.className = `decision-banner is-${tone}`;
@@ -748,7 +757,6 @@ function renderCompleteScreen(score) {
   els.phoneDmgBar.style.width = `${(dmg / 50) * 100}%`;
   els.phoneDmgBar.className = `progress-fill is-${dmg >= 40 ? "approve" : dmg >= 25 ? "review" : "reject"}`;
 
-  // Retake card if rejected_retake
   const retakeAngles = Array.isArray(score.retake_angles) ? score.retake_angles : [];
   if (score.decision === "rejected_retake" && retakeAngles.length > 0) {
     els.phoneRetakeCard.classList.remove("hidden");
@@ -759,7 +767,6 @@ function renderCompleteScreen(score) {
     els.phoneRetakeCard.classList.add("hidden");
   }
 
-  // Upcycling card if present
   const upcycle = score.upcycle_plan;
   if (upcycle && typeof upcycle === "object") {
     els.phoneUpcycleCard.classList.remove("hidden");
@@ -811,7 +818,7 @@ function bindEvents() {
   els.btnPrevStep.addEventListener("click", () => {
     if (state.currentStepIndex > 0) {
       state.currentStepIndex -= 1;
-      renderStep();
+      renderStep({ animate: true });
     }
   });
 
@@ -821,7 +828,7 @@ function bindEvents() {
     const firstMissingIdx = REQUIRED_ANGLES.findIndex((a) => !state.photosByAngle.has(a));
     if (firstMissingIdx >= 0) {
       state.currentStepIndex = firstMissingIdx;
-      renderStep();
+      renderStep({ animate: true });
     }
   });
 
@@ -836,8 +843,8 @@ function bindEvents() {
   els.btnFinishSubmit.addEventListener("click", handleFinishSubmit);
 
   els.btnBackToPhotos.addEventListener("click", () => {
-    state.currentStepIndex = REQUIRED_ANGLES.length; // Defect step
-    renderStep();
+    state.currentStepIndex = REQUIRED_ANGLES.length;
+    renderStep({ animate: true });
   });
 
   els.btnPhoneRetakeFlagged.addEventListener("click", () => {
@@ -846,7 +853,7 @@ function bindEvents() {
     const flagged = state.latestScore?.retake_angles?.[0];
     const targetIdx = STEPS.findIndex((s) => s.key === flagged);
     state.currentStepIndex = targetIdx >= 0 ? targetIdx : 0;
-    renderStep();
+    renderStep({ animate: true });
   });
 }
 

@@ -12,6 +12,7 @@ sample loader for offline/demo runs.
 from __future__ import annotations
 
 import base64
+import inspect
 import io
 import os
 import re
@@ -21,6 +22,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 import qrcode
 from dotenv import load_dotenv
@@ -28,7 +30,7 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, Up
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 load_dotenv()
 
@@ -78,6 +80,23 @@ def _ensure_dirs() -> None:
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _callable_accepts_kwarg(fn: Any, kwarg_name: str) -> bool:
+    """Return True if `fn` accepts `kwarg_name` explicitly or via **kwargs."""
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return False
+    for name, param in sig.parameters.items():
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+        if name == kwarg_name and param.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        ):
+            return True
+    return False
+
+
 # REFERENCES (no training):
 # - Model is pretrained and frozen for inference only (model.eval(), torch.no_grad(),
 #   no optimizer, no backward pass, no fine-tuning).
@@ -88,11 +107,19 @@ def _ensure_dirs() -> None:
 #   Source: Azure OpenAI Data, Privacy, and Security (https://learn.microsoft.com/en-us/azure/foundry/responsible-ai/openai/data-privacy)
 # - Challenge photos are never saved as training data.
 #   Source: Participant Agreement v2.0 ("Don't train or fine-tune a model on the photo set")
-def _run_verify_angle(image_path: str, expected_angle: str) -> dict[str, Any]:
+def _run_verify_angle(
+    image_path: str,
+    expected_angle: str,
+    *,
+    warn_threshold: float | None = None,
+) -> dict[str, Any]:
     """Dispatch Stage 1 OpenCLIP angle verification (supports monkeypatching)."""
-    if verify_angle is not _ORIG_VERIFY_ANGLE:
-        return verify_angle(image_path, expected_angle)
-    return clip_matcher.verify_angle(image_path, expected_angle)
+    target = (
+        verify_angle if verify_angle is not _ORIG_VERIFY_ANGLE else clip_matcher.verify_angle
+    )
+    if warn_threshold is not None and _callable_accepts_kwarg(target, "warn_threshold"):
+        return target(image_path, expected_angle, warn_threshold=warn_threshold)
+    return target(image_path, expected_angle)
 
 
 # REFERENCES (no training):
@@ -109,11 +136,16 @@ def _run_score_photos(
     photos: list[dict[str, Any]],
     garment_type: str,
     disclosure: dict[str, Any] | None = None,
+    *,
+    runtime_settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Dispatch Stage 2 Azure OpenAI vision rubric scoring (supports monkeypatching)."""
-    if score_photos is not _ORIG_SCORE_PHOTOS:
-        return score_photos(photos, garment_type, disclosure)
-    return vision_scorer.score_photos(photos, garment_type, disclosure)
+    target = (
+        score_photos if score_photos is not _ORIG_SCORE_PHOTOS else vision_scorer.score_photos
+    )
+    if runtime_settings is not None and _callable_accepts_kwarg(target, "runtime_settings"):
+        return target(photos, garment_type, disclosure, runtime_settings=runtime_settings)
+    return target(photos, garment_type, disclosure)
 
 
 def _run_compute_score(
@@ -121,11 +153,22 @@ def _run_compute_score(
     photos: list[dict[str, Any]],
     garment_type: str,
     disclosure: dict[str, Any] | None = None,
+    *,
+    auto_approve_min: int | None = None,
+    human_review_min: int | None = None,
 ) -> dict[str, Any]:
     """Dispatch Stage 3 deterministic photo coverage + damage disclosure scoring."""
-    if compute_score is not _ORIG_COMPUTE_SCORE:
-        return compute_score(vision_result, photos, garment_type, disclosure)
-    return scoring_engine.compute_score(vision_result, photos, garment_type, disclosure)
+    target = (
+        compute_score
+        if compute_score is not _ORIG_COMPUTE_SCORE
+        else scoring_engine.compute_score
+    )
+    extra_kwargs: dict[str, Any] = {}
+    if auto_approve_min is not None and _callable_accepts_kwarg(target, "auto_approve_min"):
+        extra_kwargs["auto_approve_min"] = auto_approve_min
+    if human_review_min is not None and _callable_accepts_kwarg(target, "human_review_min"):
+        extra_kwargs["human_review_min"] = human_review_min
+    return target(vision_result, photos, garment_type, disclosure, **extra_kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +199,20 @@ class LoadSampleRequest(BaseModel):
     disclosure: dict[str, Any] | None = None
 
 
+class AdminSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    vision_deployment: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    poll_interval_ms: int | None = None
+    auto_score_on_complete: bool | None = None
+    clip_warn_threshold: float | None = None
+    auto_approve_min: int | None = None
+    human_review_min: int | None = None
+    public_base_url: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Helper Functions
 # ---------------------------------------------------------------------------
@@ -168,9 +225,15 @@ def _generate_session_id() -> str:
     return secrets.token_hex(4)
 
 
-def _resolve_public_base_url(request: Request) -> str:
+def _resolve_public_base_url(
+    request: Request,
+    settings: dict[str, Any] | None = None,
+) -> str:
     """Resolve HTTPS public base URL for mobile QR code links."""
-    configured = (os.environ.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    if isinstance(settings, dict) and "public_base_url" in settings:
+        configured = str(settings.get("public_base_url") or "").strip().rstrip("/")
+    else:
+        configured = (os.environ.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
     if configured:
         return configured
 
@@ -404,10 +467,11 @@ def create_intake_session(
     payload: CreateSessionRequest = Body(default_factory=CreateSessionRequest),
 ) -> dict[str, Any]:
     _ensure_db()
+    settings = db.get_settings()
     session_id = _generate_session_id()
     session = db.create_session(session_id, garment_type=payload.garment_type)
 
-    base_url = _resolve_public_base_url(request)
+    base_url = _resolve_public_base_url(request, settings=settings)
     capture_url = f"{base_url}/capture/{session_id}"
     qr_data_url = _generate_qr_data_url(capture_url)
 
@@ -424,7 +488,16 @@ def create_intake_session(
 @app.get("/sessions")
 def get_sessions(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
     _ensure_db()
-    return {"sessions": db.list_sessions(limit=limit)}
+    sessions = db.list_sessions(limit=limit)
+    enriched: list[dict[str, Any]] = []
+    for item in sessions:
+        if "brand" not in item and item.get("total_score") is not None:
+            sc = db.get_score(item["session_id"])
+            labels = sc.get("extracted_labels") if isinstance(sc, dict) else None
+            brand = labels.get("brand") if isinstance(labels, dict) else None
+            item = {**item, "brand": brand}
+        enriched.append(item)
+    return {"sessions": enriched}
 
 
 @app.post("/upload")
@@ -451,7 +524,12 @@ async def upload_photo(
     dest_path = UPLOADS_DIR / session_id / filename
     _save_normalized_jpeg(raw_bytes, dest_path)
 
-    clip_result = _run_verify_angle(str(dest_path), clean_angle)
+    settings = db.get_settings()
+    clip_result = _run_verify_angle(
+        str(dest_path),
+        clean_angle,
+        warn_threshold=settings.get("clip_warn_threshold"),
+    )
     predicted_angle = clip_result.get("predicted_angle")
     expected_similarity = float(clip_result.get("expected_similarity", 0.0))
     top_similarity = float(clip_result.get("top_similarity", expected_similarity))
@@ -566,16 +644,20 @@ def score_intake_session(payload: ScoreRequest) -> dict[str, Any]:
             detail="No photos uploaded for this session yet. Capture at least one angle before scoring.",
         )
 
+    settings = db.get_settings()
     vision_result = _run_score_photos(
         photos,
         session["garment_type"],
         merged_disclosure,
+        runtime_settings=settings,
     )
     score_result = _run_compute_score(
         vision_result,
         photos,
         session["garment_type"],
         merged_disclosure,
+        auto_approve_min=settings.get("auto_approve_min"),
+        human_review_min=settings.get("human_review_min"),
     )
 
     # Preserve vision details if not already folded into score_result
@@ -590,8 +672,9 @@ def score_intake_session(payload: ScoreRequest) -> dict[str, Any]:
             "contradiction_flagged",
             "contradiction_reason",
             "summary",
+            "agent_trace",
         ):
-            if field_name in vision_result and field_name not in score_payload:
+            if field_name in vision_result and score_payload.get(field_name) is None:
                 score_payload[field_name] = vision_result[field_name]
 
     saved = db.save_score(payload.session_id, score_payload)
@@ -710,6 +793,7 @@ def load_demo_sample(payload: LoadSampleRequest) -> dict[str, Any]:
     session_upload_dir = UPLOADS_DIR / session_id
     session_upload_dir.mkdir(parents=True, exist_ok=True)
 
+    settings = db.get_settings()
     ts_base = int(time.time() * 1000)
     for offset, (angle, src_path) in enumerate(selected.items()):
         dest_path = session_upload_dir / f"{angle}_{ts_base + offset}.jpg"
@@ -718,7 +802,11 @@ def load_demo_sample(payload: LoadSampleRequest) -> dict[str, Any]:
         else:
             _save_normalized_jpeg(src_path.read_bytes(), dest_path)
 
-        clip_result = _run_verify_angle(str(dest_path), angle)
+        clip_result = _run_verify_angle(
+            str(dest_path),
+            angle,
+            warn_threshold=settings.get("clip_warn_threshold"),
+        )
         predicted_angle = clip_result.get("predicted_angle")
         expected_similarity = float(clip_result.get("expected_similarity", 0.0))
         angle_status = str(
@@ -759,4 +847,96 @@ def load_demo_sample(payload: LoadSampleRequest) -> dict[str, Any]:
         "status": "ready_to_score",
         "captured_angles": _ordered_captured_angles(photos),
         "photos": enriched_photos,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Admin Settings & System Diagnostics (NEVER exposes API keys or secrets)
+# ---------------------------------------------------------------------------
+@app.get("/admin/settings")
+def get_admin_settings() -> dict[str, Any]:
+    """Return runtime intake ERP settings with permanently locked hard-gate flag."""
+    _ensure_db()
+    return {
+        "settings": db.get_settings(),
+        "available_deployments": list(db.ALLOWED_DEPLOYMENTS),
+        "hard_gate_locked": True,
+    }
+
+
+@app.post("/admin/settings")
+def save_admin_settings(payload: AdminSettingsUpdate) -> dict[str, Any]:
+    """Validate and persist runtime intake ERP settings in SQLite."""
+    _ensure_db()
+    patch = payload.model_dump(exclude_none=True)
+    if "public_base_url" in patch:
+        raw_url = str(patch["public_base_url"]).strip().rstrip("/")
+        if raw_url and not raw_url.startswith(("http://", "https://")):
+            raise HTTPException(
+                status_code=422,
+                detail="public_base_url must be empty or start with http:// or https://.",
+            )
+        patch["public_base_url"] = raw_url
+
+    try:
+        updated = db.update_settings(patch)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return {
+        "settings": updated,
+        "available_deployments": list(db.ALLOWED_DEPLOYMENTS),
+        "hard_gate_locked": True,
+    }
+
+
+@app.get("/admin/diagnostics")
+def get_admin_diagnostics() -> dict[str, Any]:
+    """Return non-secret Azure, OpenCLIP, SQLite, compliance, and trace diagnostics."""
+    _ensure_db()
+    settings = db.get_settings()
+
+    endpoint = (os.environ.get("AZURE_OPENAI_ENDPOINT") or "").strip()
+    api_key = (os.environ.get("AZURE_OPENAI_API_KEY") or "").strip()
+    api_version = (
+        os.environ.get("AZURE_OPENAI_API_VERSION") or "2024-12-01-preview"
+    ).strip()
+    endpoint_host = urlparse(endpoint).hostname if endpoint else None
+
+    openclip_diag = (
+        clip_matcher.get_clip_diagnostics()
+        if hasattr(clip_matcher, "get_clip_diagnostics")
+        else {}
+    )
+
+    db_stats = (
+        db.get_db_stats()
+        if hasattr(db, "get_db_stats")
+        else {
+            "db_path": db.get_db_path(),
+            "session_count": len(db.list_sessions(limit=10000)),
+            "pending_review_count": sum(
+                1
+                for item in db.list_review_queue()
+                if (item.get("review_status") or item.get("status")) == "pending"
+            ),
+        }
+    )
+
+    return {
+        "azure": {
+            "configured": bool(endpoint and api_key),
+            "endpoint_host": endpoint_host,
+            "api_version": api_version,
+            "active_deployment": settings.get("vision_deployment", "gpt-4.1"),
+            "available_deployments": list(db.ALLOWED_DEPLOYMENTS),
+        },
+        "openclip": openclip_diag,
+        "database": db_stats,
+        "compliance": {
+            "hard_gate_locked": True,
+            "inference_only": True,
+            "wording_mode": "photo_coverage_and_damage_disclosure_only",
+        },
+        "latest_agent_trace": db.get_latest_agent_trace(),
     }

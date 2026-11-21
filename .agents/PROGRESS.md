@@ -32,3 +32,10 @@
 - [x] Audit all UI copy, prompts, headers, Rule 11 `# REFERENCES (no training):` blocks, and JSON outputs (`"photo coverage"` & `"damage disclosure"` wording only, zero safety certification claims, zero buy-in offers on compromised gear, no person identification, no challenge photos sent to coding assistants)
 - [x] Update `TOOLS.md` with exact OpenCLIP checkpoint name and final package versions; verify private repo & `git status` excludes `data/`, `.env`, `refs.npy`, `refs_meta.json`, `*.db`, `uploads/`, `.docx`, `.xlsx`
 - [ ] Expose local FastAPI over HTTPS via ngrok or Cloudflare Tunnel (`cloudflared`) and run live phone camera walkthrough for demo
+
+## Phase 5 — Milestone 4 Review & Intake ERP Upgrade (`REVIEW.md`)
+- [x] Eliminate 2-second desktop photo flicker via persistent per-angle DOM cards + signature diffing (`angleSignatures`) and smart stop-polling on `status === "scored"`
+- [x] Redesign counter & mobile UI into **Moto Reloaded · Intake ERP** shell + stacked 3-step Tinder-style card deck (`1. Category -> 2. Photo Capture -> 3. Verification & Audit`)
+- [x] Remove all hardcoded personal names across `app/` and test fixtures (enforced by automated test)
+- [x] Add `app_settings` table, `/admin/settings`, `/admin/diagnostics`, OpenCLIP diagnostics, and **Frontier Agent Output & Prompt Trace** (`agent_trace` on Card 3 and Admin & Debug, zero API key leakage, Hard Compliance Gate permanently locked `<= 49`)
+- [x] Verified **26/26** offline tests (`uv run pytest -v`), all compliance audits, and live `RL01-001` Azure OpenAI `gpt-4.1` `agent_trace` smoke check (`M4_LIVE_TRACE_OK`)

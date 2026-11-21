@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -187,7 +188,13 @@ class _ClipMatcherSingleton:
         norm = float(np.linalg.norm(vec))
         return vec / norm if norm > 0 else vec
 
-    def verify_angle(self, image_path: str, expected_angle: str) -> dict[str, Any]:
+    def verify_angle(
+        self,
+        image_path: str,
+        expected_angle: str,
+        *,
+        warn_threshold: float | None = None,
+    ) -> dict[str, Any]:
         expected = expected_angle.strip().lower()
         if expected not in VALID_ANGLES:
             raise ValueError(f"Unsupported angle '{expected_angle}'. Expected one of {VALID_ANGLES}.")
@@ -195,10 +202,16 @@ class _ClipMatcherSingleton:
         vec = self.encode_image(image_path)
 
         if self._mode == "refs_npy" and self._refs is not None:
-            return self._match_against_refs(vec, expected)
-        return self._match_zero_shot_text(vec, expected)
+            return self._match_against_refs(vec, expected, warn_threshold=warn_threshold)
+        return self._match_zero_shot_text(vec, expected, warn_threshold=warn_threshold)
 
-    def _match_against_refs(self, vec: np.ndarray, expected: str) -> dict[str, Any]:
+    def _match_against_refs(
+        self,
+        vec: np.ndarray,
+        expected: str,
+        *,
+        warn_threshold: float | None = None,
+    ) -> dict[str, Any]:
         assert self._refs is not None
         sims = self._refs @ vec  # cosine similarity via L2-normalized dot product
 
@@ -231,6 +244,7 @@ class _ClipMatcherSingleton:
 
         predicted_angle = max(REQUIRED_ANGLES, key=lambda a: angle_scores[a])
         top_similarity = angle_scores[predicted_angle]
+        effective_min_sim = float(warn_threshold) if warn_threshold is not None else _MIN_SIM_REFS
 
         if expected == "defect":
             defect_sims = [
@@ -253,7 +267,7 @@ class _ClipMatcherSingleton:
                 predicted=predicted_angle,
                 expected_sim=expected_similarity,
                 top_sim=top_similarity,
-                min_sim=_MIN_SIM_REFS,
+                min_sim=effective_min_sim,
                 macro_margin=_MACRO_MARGIN_REFS,
             )
             angle_status = "matched" if angle_ok else "warn_mismatch"
@@ -269,7 +283,13 @@ class _ClipMatcherSingleton:
             "mode": "refs_npy",
         }
 
-    def _match_zero_shot_text(self, vec: np.ndarray, expected: str) -> dict[str, Any]:
+    def _match_zero_shot_text(
+        self,
+        vec: np.ndarray,
+        expected: str,
+        *,
+        warn_threshold: float | None = None,
+    ) -> dict[str, Any]:
         if self._text_prototypes is None:
             self._build_zero_shot_text_prototypes()
         assert self._text_prototypes is not None
@@ -281,6 +301,7 @@ class _ClipMatcherSingleton:
         core_scores = {a: all_scores[a] for a in REQUIRED_ANGLES}
         predicted_angle = max(REQUIRED_ANGLES, key=lambda a: core_scores[a])
         top_similarity = core_scores[predicted_angle]
+        effective_min_sim = float(warn_threshold) if warn_threshold is not None else _MIN_SIM_ZEROSHOT
 
         sorted_refs = sorted(all_scores.items(), key=lambda kv: kv[1], reverse=True)[:5]
         matched_references = [
@@ -304,7 +325,7 @@ class _ClipMatcherSingleton:
                 predicted=predicted_angle,
                 expected_sim=expected_similarity,
                 top_sim=top_similarity,
-                min_sim=_MIN_SIM_ZEROSHOT,
+                min_sim=effective_min_sim,
                 macro_margin=_MACRO_MARGIN_ZEROSHOT,
             )
             angle_status = "matched" if angle_ok else "warn_mismatch"
@@ -318,6 +339,66 @@ class _ClipMatcherSingleton:
             "angle_ok": angle_ok,
             "matched_references": matched_references,
             "mode": "zero_shot_text",
+        }
+
+    def get_diagnostics(self) -> dict[str, Any]:
+        """Return OpenCLIP runtime & reference index diagnostics without forcing heavy model load."""
+        if self._loaded:
+            angle_counts = dict(
+                sorted(Counter(str(r.get("angle", "unknown")) for r in self._records).items())
+            )
+            refs_loaded = self._refs is not None and len(self._records) > 0
+            return {
+                "checkpoint": CLIP_MODEL_NAME,
+                "pretrained": CLIP_PRETRAINED,
+                "device": self._device,
+                "model_loaded": True,
+                "refs_loaded": refs_loaded,
+                "refs_count": len(self._records),
+                "angle_counts": angle_counts,
+            }
+
+        device = "cpu"
+        try:
+            import torch
+
+            device = "mps" if torch.backends.mps.is_available() else "cpu"
+        except Exception:
+            device = "cpu"
+
+        npy_path, meta_path = self._resolve_ref_paths()
+        refs_loaded = False
+        refs_count = 0
+        angle_counts: dict[str, int] = {}
+
+        if meta_path.exists():
+            try:
+                raw_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                records = raw_meta["records"] if isinstance(raw_meta, dict) else raw_meta
+                if isinstance(records, list) and records:
+                    refs_count = len(records)
+                    if isinstance(raw_meta, dict) and isinstance(raw_meta.get("angle_counts"), dict):
+                        angle_counts = {
+                            str(k): int(v) for k, v in sorted(raw_meta["angle_counts"].items())
+                        }
+                    else:
+                        angle_counts = dict(
+                            sorted(Counter(str(r.get("angle", "unknown")) for r in records).items())
+                        )
+                    refs_loaded = npy_path.exists()
+            except (OSError, ValueError, KeyError, TypeError):
+                refs_loaded = False
+                refs_count = 0
+                angle_counts = {}
+
+        return {
+            "checkpoint": CLIP_MODEL_NAME,
+            "pretrained": CLIP_PRETRAINED,
+            "device": device,
+            "model_loaded": False,
+            "refs_loaded": refs_loaded,
+            "refs_count": refs_count,
+            "angle_counts": angle_counts,
         }
 
     @staticmethod
@@ -353,6 +434,20 @@ _MATCHER = _ClipMatcherSingleton()
 #   Source: Azure OpenAI Data, Privacy, and Security (https://learn.microsoft.com/en-us/azure/foundry/responsible-ai/openai/data-privacy)
 # - Challenge photos are never saved as training data.
 #   Source: Participant Agreement v2.0 ("Don't train or fine-tune a model on the photo set")
-def verify_angle(image_path: str, expected_angle: str) -> dict[str, Any]:
+def verify_angle(
+    image_path: str,
+    expected_angle: str,
+    *,
+    warn_threshold: float | None = None,
+) -> dict[str, Any]:
     """Verify whether `image_path` matches `expected_angle` using frozen OpenCLIP lookup."""
-    return _MATCHER.verify_angle(image_path=image_path, expected_angle=expected_angle)
+    return _MATCHER.verify_angle(
+        image_path=image_path,
+        expected_angle=expected_angle,
+        warn_threshold=warn_threshold,
+    )
+
+
+def get_clip_diagnostics() -> dict[str, Any]:
+    """Return frozen OpenCLIP checkpoint, device, and reference index diagnostics."""
+    return _MATCHER.get_diagnostics()

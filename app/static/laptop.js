@@ -5,8 +5,8 @@ const REQUIRED_ANGLES = ["front", "left", "right", "back", "inside", "labels"];
 const ANGLE_META = {
   front: {
     title: "Front Exterior",
-    jacket: "Laid flat, zipped · front torso & shoulders",
-    pants: "Laid flat, fastened · front hips & knees",
+    jacket: "Laid flat, zipped · torso & front shoulders",
+    pants: "Laid flat, fastened · hips & knees",
   },
   left: {
     title: "Left Side",
@@ -26,7 +26,7 @@ const ANGLE_META = {
   inside: {
     title: "Inside & Lining",
     jacket: "Inside-out lining, layers & protector pockets",
-    pants: "Inside-out lining, layers & knee/hip pockets",
+    pants: "Inside-out lining, layers & hip/knee pockets",
   },
   labels: {
     title: "Labels Close-Up",
@@ -35,9 +35,21 @@ const ANGLE_META = {
   },
 };
 
+const DEFAULT_RUNTIME_SETTINGS = {
+  vision_deployment: "gpt-4.1",
+  temperature: 0.1,
+  max_tokens: 1800,
+  poll_interval_ms: 2000,
+  auto_score_on_complete: true,
+  clip_warn_threshold: 0.22,
+  auto_approve_min: 85,
+  human_review_min: 50,
+  public_base_url: "",
+};
+
 const state = {
   activeTab: "intake",
-  selectedGarment: "jacket",
+  wizardStep: 1, // 1 = Category, 2 = Capture, 3 = Verification & Audit
   sessionId: null,
   garmentType: "jacket",
   captureUrl: "",
@@ -48,49 +60,83 @@ const state = {
   lastStatus: null,
   disclosureDirty: false,
   counterCrash: false,
+  // Flicker-free DOM signature trackers
+  angleSignatures: new Map(),
+  angleCardNodes: new Map(),
+  defectSig: "",
+  lastScoreSig: "",
+  // Workspace data
+  settings: { ...DEFAULT_RUNTIME_SETTINGS },
+  availableDeployments: ["gpt-4.1", "gpt-4.1-mini"],
+  diagnostics: null,
+  latestTracePayload: null,
+  auditTracePayload: null,
   queueFilter: "all",
   queueItems: [],
   sessions: [],
 };
 
-// DOM References
 const els = {
   toast: document.getElementById("global-toast"),
+  headerModelPill: document.getElementById("header-model-pill"),
   tabs: document.querySelectorAll(".nav-tab"),
   panels: {
     intake: document.getElementById("panel-intake"),
     queue: document.getElementById("panel-queue"),
     log: document.getElementById("panel-log"),
+    admin: document.getElementById("panel-admin"),
   },
   queueBadge: document.getElementById("queue-badge"),
   logBadge: document.getElementById("log-badge"),
-  garmentButtons: document.querySelectorAll("[data-garment]"),
-  btnStartSession: document.getElementById("btn-start-session"),
-  sampleSelect: document.getElementById("sample-select"),
-  btnLoadSample: document.getElementById("btn-load-sample"),
-  intakeEmpty: document.getElementById("intake-empty"),
-  intakeWorkspace: document.getElementById("intake-workspace"),
-  sessionHeading: document.getElementById("session-heading"),
-  sessionGarmentPill: document.getElementById("session-garment-pill"),
-  sessionStatusPill: document.getElementById("session-status-pill"),
+  // Wizard
+  wizSteps: {
+    1: document.getElementById("wiz-step-1"),
+    2: document.getElementById("wiz-step-2"),
+    3: document.getElementById("wiz-step-3"),
+  },
+  cards: {
+    1: document.getElementById("card-step-1"),
+    2: document.getElementById("card-step-2"),
+    3: document.getElementById("card-step-3"),
+  },
+  // Card 1
+  pickJacketBtn: document.getElementById("btn-pick-jacket"),
+  pickPantsBtn: document.getElementById("btn-pick-pants"),
+  card1SampleSelect: document.getElementById("card1-sample-select"),
+  card1SampleGarment: document.getElementById("card1-sample-garment"),
+  btnCard1LoadSample: document.getElementById("btn-card1-load-sample"),
+  // Card 2
+  btnBackCategory: document.getElementById("btn-back-category"),
+  captureSessionTitle: document.getElementById("capture-session-title"),
+  captureGarmentPill: document.getElementById("capture-garment-pill"),
+  captureStatusPill: document.getElementById("capture-status-pill"),
   pollingIndicator: document.getElementById("polling-indicator"),
-  qrHandoffCard: document.getElementById("qr-handoff-card"),
+  pollingLabel: document.getElementById("polling-label"),
+  angleCountPill: document.getElementById("angle-count-pill"),
+  qrRail: document.getElementById("qr-rail"),
+  qrFrameBox: document.getElementById("qr-frame-box"),
   qrImage: document.getElementById("qr-image"),
   captureUrlInput: document.getElementById("capture-url-input"),
   btnCopyUrl: document.getElementById("btn-copy-url"),
   linkOpenCapture: document.getElementById("link-open-capture"),
-  angleCountPill: document.getElementById("angle-count-pill"),
   angleGrid: document.getElementById("angle-grid"),
   defectSection: document.getElementById("defect-section"),
   defectCountPill: document.getElementById("defect-count-pill"),
   defectStrip: document.getElementById("defect-strip"),
-  btnScoreNow: document.getElementById("btn-score-now"),
+  disclosureSummaryPill: document.getElementById("disclosure-summary-pill"),
   counterCrashBtns: document.querySelectorAll("[data-counter-crash]"),
   counterUsageSelect: document.getElementById("counter-usage-select"),
   counterNotesInput: document.getElementById("counter-notes-input"),
+  btnPollNow: document.getElementById("btn-poll-now"),
+  captureReadyHint: document.getElementById("capture-ready-hint"),
+  btnContinueAudit: document.getElementById("btn-continue-audit"),
+  // Card 3
+  auditSessionTitle: document.getElementById("audit-session-title"),
+  auditGarmentPill: document.getElementById("audit-garment-pill"),
+  auditBrandPill: document.getElementById("audit-brand-pill"),
   btnExportXlsx: document.getElementById("btn-export-xlsx"),
-  scoreWaiting: document.getElementById("score-waiting"),
   scoreLoading: document.getElementById("score-loading"),
+  scoreLoadingDetail: document.getElementById("score-loading-detail"),
   scoreReport: document.getElementById("score-report"),
   decisionBanner: document.getElementById("decision-banner"),
   decisionBandPill: document.getElementById("decision-band-pill"),
@@ -121,12 +167,57 @@ const els = {
   labelsGrid: document.getElementById("labels-grid"),
   checklistSummaryPill: document.getElementById("checklist-summary-pill"),
   checklistTbody: document.getElementById("checklist-tbody"),
+  auditTraceCard: document.getElementById("audit-trace-card"),
+  auditTraceHeading: document.getElementById("audit-trace-heading"),
+  auditTraceProviderPill: document.getElementById("audit-trace-provider-pill"),
+  auditTraceStats: document.getElementById("audit-trace-stats"),
+  auditTraceSystem: document.getElementById("audit-trace-system"),
+  auditTraceUser: document.getElementById("audit-trace-user"),
+  auditTraceRaw: document.getElementById("audit-trace-raw"),
+  btnAuditCopyPrompt: document.getElementById("btn-audit-copy-prompt"),
+  btnAuditCopyJson: document.getElementById("btn-audit-copy-json"),
+  auditInlineReview: document.getElementById("audit-inline-review"),
+  auditStaffNotes: document.getElementById("audit-staff-notes"),
+  btnAuditApprove: document.getElementById("btn-audit-approve"),
+  btnAuditDecline: document.getElementById("btn-audit-decline"),
   scoreDisclaimer: document.getElementById("score-disclaimer"),
+  btnAuditBackCapture: document.getElementById("btn-audit-back-capture"),
+  btnAuditRescore: document.getElementById("btn-audit-rescore"),
+  btnStartNextIntake: document.getElementById("btn-start-next-intake"),
+  // Queue & Ledger
   queueFilterBtns: document.querySelectorAll("[data-queue-filter]"),
   btnRefreshQueue: document.getElementById("btn-refresh-queue"),
   queueList: document.getElementById("queue-list"),
   btnRefreshLog: document.getElementById("btn-refresh-log"),
   logTbody: document.getElementById("log-tbody"),
+  // Admin & Debug
+  btnRefreshAdmin: document.getElementById("btn-refresh-admin"),
+  adminDiagGrid: document.getElementById("admin-diag-grid"),
+  adminSettingsForm: document.getElementById("admin-settings-form"),
+  setDeployment: document.getElementById("set-deployment"),
+  setPollInterval: document.getElementById("set-poll-interval"),
+  setTemperature: document.getElementById("set-temperature"),
+  setMaxTokens: document.getElementById("set-max-tokens"),
+  setClipThreshold: document.getElementById("set-clip-threshold"),
+  setPublicUrl: document.getElementById("set-public-url"),
+  setAutoApproveMin: document.getElementById("set-auto-approve-min"),
+  setHumanReviewMin: document.getElementById("set-human-review-min"),
+  setAutoScore: document.getElementById("set-auto-score"),
+  btnSaveSettings: document.getElementById("btn-save-settings"),
+  sandboxSampleSelect: document.getElementById("sandbox-sample-select"),
+  sandboxGarmentSelect: document.getElementById("sandbox-garment-select"),
+  sandboxPresetSelect: document.getElementById("sandbox-preset-select"),
+  btnSandboxRun: document.getElementById("btn-sandbox-run"),
+  adminTraceSubtitle: document.getElementById("admin-trace-subtitle"),
+  adminTraceEmpty: document.getElementById("admin-trace-empty"),
+  adminTraceContent: document.getElementById("admin-trace-content"),
+  adminTraceStats: document.getElementById("admin-trace-stats"),
+  adminTraceSystem: document.getElementById("admin-trace-system"),
+  adminTraceUser: document.getElementById("admin-trace-user"),
+  adminTraceRaw: document.getElementById("admin-trace-raw"),
+  btnAdminCopyPrompt: document.getElementById("btn-admin-copy-prompt"),
+  btnAdminCopyJson: document.getElementById("btn-admin-copy-json"),
+  // Lightbox
   lightbox: document.getElementById("photo-lightbox"),
   lightboxTitle: document.getElementById("lightbox-title"),
   lightboxSubtitle: document.getElementById("lightbox-subtitle"),
@@ -175,8 +266,46 @@ function formatPct(value) {
   return `${Math.max(0, Math.min(100, pct))}%`;
 }
 
+function prettyJsonText(raw) {
+  if (raw === null || raw === undefined || raw === "") return "{}";
+  if (typeof raw === "object") {
+    try {
+      return JSON.stringify(raw, null, 2);
+    } catch {
+      return String(raw);
+    }
+  }
+  const text = String(raw).trim();
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text;
+  }
+}
+
+async function copyText(text, successMsg) {
+  if (!text) {
+    showToast("Nothing to copy yet.", "warn", 2200);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast(successMsg, "success", 2400);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+    showToast(successMsg, "success", 2400);
+  }
+}
+
 let toastTimer = null;
-function showToast(message, variant = "info", durationMs = 4500) {
+function showToast(message, variant = "info", durationMs = 4200) {
   els.toast.className = "toast-banner";
   if (variant === "error") els.toast.classList.add("is-error");
   if (variant === "success") els.toast.classList.add("is-success");
@@ -207,7 +336,12 @@ async function apiJson(url, options = {}) {
     body = null;
   }
   if (!res.ok) {
-    const detail = body?.detail || body?.message || `Request failed (${res.status})`;
+    const detail =
+      typeof body?.detail === "string"
+        ? body.detail
+        : Array.isArray(body?.detail)
+        ? body.detail.map((d) => d.msg || JSON.stringify(d)).join("; ")
+        : body?.message || `Request failed (${res.status})`;
     throw new Error(detail);
   }
   return body;
@@ -219,8 +353,8 @@ function decisionMeta(decision, scoreValue = null) {
       return {
         tone: "approve",
         badgeClass: "pill-approve",
-        bandText: "85–100 · Auto-Approved & Logged",
-        title: "Auto-Approved & Logged (85–100)",
+        bandText: "Auto-Approved",
+        title: "Auto-Approved & Logged",
         buyInText: "Buy-In Eligible · Confirm In-Hand",
         buyInClass: "pill-approve",
       };
@@ -228,17 +362,17 @@ function decisionMeta(decision, scoreValue = null) {
       return {
         tone: "review",
         badgeClass: "pill-review",
-        bandText: "50–84 · Human Review",
-        title: "Human Review Required (50–84)",
-        buyInText: "Queued for Alex / Barbara",
+        bandText: "Pending Staff Review",
+        title: "Pending Staff Review",
+        buyInText: "Held for In-Hand Inspection",
         buyInClass: "pill-review",
       };
     case "rejected_retake":
       return {
         tone: "reject",
         badgeClass: "pill-reject",
-        bandText: "0–49 · Retake Required",
-        title: "Rejected / Photo Retake Required (0–49)",
+        bandText: "Retake Required",
+        title: "Retake Required (0–49)",
         buyInText: "Not Ready · Retake Flagged Angles",
         buyInClass: "pill-reject",
       };
@@ -246,15 +380,15 @@ function decisionMeta(decision, scoreValue = null) {
       return {
         tone: "reject",
         badgeClass: "pill-reject",
-        bandText: "0–49 · Declined for Buy-In",
-        title: "Declined for Buy-In — Route to Upcycling (0–49)",
+        bandText: "Declined — Upcycle Pathway",
+        title: "Declined for Buy-In — Upcycle Pathway",
         buyInText: "Declined · Route to Upcycling",
         buyInClass: "pill-reject",
       };
     default: {
       const n = Number(scoreValue);
-      if (Number.isFinite(n) && n >= 85) return decisionMeta("auto_approved");
-      if (Number.isFinite(n) && n >= 50) return decisionMeta("human_review");
+      if (Number.isFinite(n) && n >= state.settings.auto_approve_min) return decisionMeta("auto_approved");
+      if (Number.isFinite(n) && n >= state.settings.human_review_min) return decisionMeta("human_review");
       return {
         tone: "neutral",
         badgeClass: "pill-neutral",
@@ -283,251 +417,106 @@ function statusPillInfo(status) {
 }
 
 // ============================================================================
-// Tabs & Navigation
+// Flicker-Free 6-Angle Deck Initialization (Built ONCE — Never Rebuilt on Poll)
 // ============================================================================
 
-function switchTab(tabName) {
-  state.activeTab = tabName;
-  els.tabs.forEach((btn) => {
-    const active = btn.dataset.tab === tabName;
-    btn.classList.toggle("is-active", active);
-    btn.setAttribute("aria-selected", String(active));
+function initAngleDeck() {
+  els.angleGrid.replaceChildren();
+  state.angleCardNodes.clear();
+  state.angleSignatures.clear();
+
+  REQUIRED_ANGLES.forEach((angle) => {
+    const meta = ANGLE_META[angle];
+
+    const card = document.createElement("article");
+    card.className = "angle-card";
+    card.dataset.angle = angle;
+
+    const thumbWrap = document.createElement("div");
+    thumbWrap.className = "angle-thumb-wrap";
+
+    const placeholder = document.createElement("div");
+    placeholder.className = "angle-placeholder";
+    placeholder.innerHTML = `
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <path d="M4 7h3l2-2h6l2 2h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" />
+        <circle cx="12" cy="13" r="3.5" />
+      </svg>
+      <span>Awaiting ${escapeHtml(angle)}</span>
+    `;
+
+    const thumbBtn = document.createElement("button");
+    thumbBtn.type = "button";
+    thumbBtn.className = "angle-thumb-btn hidden";
+    thumbBtn.setAttribute("aria-label", `Inspect ${meta.title} full size`);
+
+    const img = document.createElement("img");
+    img.className = "angle-thumb-img";
+    img.alt = `${meta.title} capture`;
+    img.decoding = "async";
+    thumbBtn.appendChild(img);
+
+    thumbBtn.addEventListener("click", () => {
+      openLightbox(
+        thumbBtn.dataset.lightboxUrl || "",
+        thumbBtn.dataset.lightboxTitle || meta.title,
+        thumbBtn.dataset.lightboxSub || ""
+      );
+    });
+
+    thumbWrap.appendChild(placeholder);
+    thumbWrap.appendChild(thumbBtn);
+
+    const body = document.createElement("div");
+    body.className = "angle-body";
+
+    const headerRow = document.createElement("div");
+    headerRow.className = "row-between";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "angle-name";
+    nameSpan.textContent = meta.title;
+
+    const badgeSpan = document.createElement("span");
+    badgeSpan.className = "pill pill-neutral";
+    badgeSpan.textContent = "Pending";
+
+    headerRow.appendChild(nameSpan);
+    headerRow.appendChild(badgeSpan);
+
+    const metaP = document.createElement("p");
+    metaP.className = "angle-meta";
+    metaP.textContent = meta.jacket;
+
+    body.appendChild(headerRow);
+    body.appendChild(metaP);
+
+    card.appendChild(thumbWrap);
+    card.appendChild(body);
+    els.angleGrid.appendChild(card);
+
+    state.angleCardNodes.set(angle, {
+      card,
+      placeholder,
+      thumbBtn,
+      img,
+      badgeSpan,
+      metaP,
+    });
   });
-  Object.entries(els.panels).forEach(([key, panel]) => {
-    panel.classList.toggle("hidden", key !== tabName);
-  });
-
-  if (tabName === "queue") {
-    loadReviewQueue();
-  } else if (tabName === "log") {
-    loadSessionsLog();
-  }
 }
 
-// ============================================================================
-// Demo Samples Loader
-// ============================================================================
-
-async function loadDemoSamplesList() {
-  try {
-    const data = await apiJson("/demo/samples");
-    const items = Array.isArray(data?.items) ? data.items : [];
-    if (!items.length) {
-      els.sampleSelect.innerHTML = `<option value="">No local samples found</option>`;
-      els.btnLoadSample.disabled = true;
-      return;
-    }
-    els.sampleSelect.innerHTML = items
-      .map((itemId) => `<option value="${escapeHtml(itemId)}">${escapeHtml(itemId)}</option>`)
-      .join("");
-    els.btnLoadSample.disabled = false;
-  } catch (err) {
-    els.sampleSelect.innerHTML = `<option value="">Samples unavailable</option>`;
-    els.btnLoadSample.disabled = true;
-    console.warn("Could not load demo samples:", err);
-  }
+function resetCaptureDeckSignatures() {
+  state.angleSignatures.clear();
+  state.defectSig = "";
+  state.lastScoreSig = "";
 }
 
-async function handleLoadSample() {
-  const itemId = els.sampleSelect.value;
-  if (!itemId) {
-    showToast("Select a local sample folder first.", "warn");
-    return;
-  }
-
-  els.btnLoadSample.disabled = true;
-  els.btnLoadSample.innerHTML = `<span class="spinner" aria-hidden="true"></span> Loading…`;
-  try {
-    const payload = {
-      item_id: itemId,
-      garment_type: state.selectedGarment,
-    };
-    const res = await apiJson("/demo/load-sample", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const captureUrl = `${window.location.origin}/capture/${res.session_id}`;
-    activateSession(res.session_id, {
-      garmentType: res.garment_type || state.selectedGarment,
-      captureUrl,
-      qrDataUrl: "",
-    });
-    showToast(
-      `Loaded local sample ${itemId} (${(res.captured_angles || []).length} angles) into session ${res.session_id}. Scoring now…`,
-      "success"
-    );
-    await pollSessionStatus();
-    loadSessionsLog();
-  } catch (err) {
-    showToast(`Failed to load sample ${itemId}: ${err.message}`, "error", 6500);
-  } finally {
-    els.btnLoadSample.disabled = false;
-    els.btnLoadSample.textContent = "Load Local Sample";
-  }
-}
-
-// ============================================================================
-// Session Creation & 2-Second Live Polling
-// ============================================================================
-
-async function handleStartSession() {
-  els.btnStartSession.disabled = true;
-  els.btnStartSession.innerHTML = `<span class="spinner spinner-dark" aria-hidden="true"></span> Starting…`;
-  try {
-    const res = await apiJson("/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ garment_type: state.selectedGarment }),
-    });
-
-    activateSession(res.session_id, {
-      garmentType: res.garment_type,
-      captureUrl: res.capture_url,
-      qrDataUrl: res.qr_data_url,
-    });
-    showToast(`Intake session ${res.session_id} created. Scan the QR code on a phone to start capture.`, "success");
-    await pollSessionStatus();
-    loadSessionsLog();
-  } catch (err) {
-    showToast(`Could not create session: ${err.message}`, "error", 6500);
-  } finally {
-    els.btnStartSession.disabled = false;
-    els.btnStartSession.textContent = "Start Intake Session";
-  }
-}
-
-function stopPolling() {
-  if (state.pollTimer) {
-    clearInterval(state.pollTimer);
-    state.pollTimer = null;
-  }
-  els.pollingIndicator.classList.add("hidden");
-}
-
-function startPolling() {
-  stopPolling();
-  if (!state.sessionId) return;
-  els.pollingIndicator.classList.remove("hidden");
-  state.pollTimer = setInterval(() => {
-    pollSessionStatus();
-  }, 2000);
-}
-
-function activateSession(sessionId, { garmentType = "jacket", captureUrl = "", qrDataUrl = "" } = {}) {
-  stopPolling();
-  state.sessionId = sessionId;
-  state.garmentType = garmentType;
-  state.captureUrl = captureUrl || `${window.location.origin}/capture/${sessionId}`;
-  state.qrDataUrl = qrDataUrl || "";
-  state.lastStatus = null;
-  state.disclosureDirty = false;
-  state.counterCrash = false;
-  syncCounterDisclosureInputs({ crash: false, usage: "moderate", notes: "" });
-
-  els.intakeEmpty.classList.add("hidden");
-  els.intakeWorkspace.classList.remove("hidden");
-
-  els.sessionHeading.textContent = `Session ${sessionId}`;
-  els.sessionGarmentPill.textContent = capitalize(garmentType);
-
-  if (state.qrDataUrl) {
-    els.qrImage.src = state.qrDataUrl;
-    els.captureUrlInput.value = state.captureUrl;
-    els.linkOpenCapture.href = state.captureUrl;
-    els.qrHandoffCard.classList.remove("hidden");
-  } else {
-    els.qrHandoffCard.classList.add("hidden");
-  }
-
-  els.btnExportXlsx.href = `/export/${encodeURIComponent(sessionId)}.xlsx`;
-  els.btnExportXlsx.classList.remove("hidden");
-
-  // Reset score view until status returns
-  els.scoreReport.classList.add("hidden");
-  els.scoreLoading.classList.add("hidden");
-  els.scoreWaiting.classList.remove("hidden");
-
-  switchTab("intake");
-  startPolling();
-}
-
-async function pollSessionStatus() {
-  if (!state.sessionId) return;
-  const activeId = state.sessionId;
-
-  try {
-    const data = await apiJson(`/status/${encodeURIComponent(activeId)}`);
-    if (state.sessionId !== activeId) return;
-
-    state.lastStatus = data;
-    state.garmentType = data.garment_type || state.garmentType;
-    renderSessionStatus(data);
-
-    // Auto-trigger POST /score once phone marks session ready_to_score
-    const isReady = data.status === "ready_to_score" || Boolean(data.ready_to_score);
-    if (
-      isReady &&
-      !data.score &&
-      !state.isScoring &&
-      !state.autoScoredSessions.has(activeId) &&
-      Array.isArray(data.photos) &&
-      data.photos.length > 0
-    ) {
-      state.autoScoredSessions.add(activeId);
-      await triggerScore(activeId, { useCounterDisclosure: false });
-    }
-  } catch (err) {
-    console.warn("Polling error:", err);
-  }
-}
-
-// ============================================================================
-// Render Active Session, Guided Angles & Score Report
-// ============================================================================
-
-function syncCounterDisclosureInputs(disclosure) {
-  const d = disclosure || {};
-  const crashBool = Boolean(d.crash);
-  state.counterCrash = crashBool;
-
-  els.counterCrashBtns.forEach((btn) => {
-    const val = btn.dataset.counterCrash === "true";
-    const isSelected = val === crashBool;
-    btn.classList.toggle("is-selected", isSelected && !val);
-    btn.classList.toggle("is-selected-danger", isSelected && val);
-    btn.setAttribute("aria-pressed", String(isSelected));
-  });
-
-  const usage = String(d.usage || d.exposure_band || "moderate").toLowerCase();
-  els.counterUsageSelect.value = ["light", "moderate", "heavy"].includes(usage) ? usage : "moderate";
-  els.counterNotesInput.value = d.notes || "";
-}
-
-function getCounterDisclosurePayload() {
-  const usage = els.counterUsageSelect.value || "moderate";
-  return {
-    crash: state.counterCrash,
-    usage,
-    exposure_band: usage,
-    notes: els.counterNotesInput.value.trim(),
-  };
-}
-
-function renderSessionStatus(data) {
-  const garment = data.garment_type || "jacket";
-  els.sessionGarmentPill.textContent = capitalize(garment);
-
-  const statusInfo = statusPillInfo(data.status);
-  els.sessionStatusPill.className = `pill ${statusInfo.cls}`;
-  els.sessionStatusPill.textContent = state.isScoring ? "Scoring…" : statusInfo.label;
-
-  const photos = Array.isArray(data.photos) ? data.photos : [];
+function syncAngleDeck(photos, garment) {
   const requiredMap = new Map();
   const defectPhotos = [];
 
-  photos.forEach((p) => {
+  (photos || []).forEach((p) => {
     const ang = String(p.angle || "").toLowerCase();
     if (ang === "defect") {
       defectPhotos.push(p);
@@ -537,40 +526,34 @@ function renderSessionStatus(data) {
   });
 
   els.angleCountPill.textContent = `${requiredMap.size} / ${REQUIRED_ANGLES.length} captured`;
-  els.btnScoreNow.disabled = photos.length === 0 || state.isScoring;
-  els.btnScoreNow.textContent = data.score ? "Re-Score Session" : "Score Now";
 
-  if (!state.disclosureDirty && data.disclosure) {
-    syncCounterDisclosureInputs(data.disclosure);
-  }
+  REQUIRED_ANGLES.forEach((angle) => {
+    const nodes = state.angleCardNodes.get(angle);
+    if (!nodes) return;
 
-  // Render 6 Guided Angle Cards
-  els.angleGrid.innerHTML = REQUIRED_ANGLES.map((angle) => {
     const meta = ANGLE_META[angle];
-    const photo = requiredMap.get(angle);
     const hint = garment === "pants" ? meta.pants : meta.jacket;
+    const photo = requiredMap.get(angle) || null;
+
+    const sig = photo
+      ? `${photo.id}|${photo.filepath}|${photo.angle_ok}|${photo.clip_predicted_angle}|${photo.clip_confidence}|${garment}`
+      : `empty|${garment}`;
+
+    // Flicker-free guard: skip DOM mutation completely when signature is unchanged
+    if (state.angleSignatures.get(angle) === sig) {
+      return;
+    }
+    state.angleSignatures.set(angle, sig);
 
     if (!photo) {
-      return `
-        <article class="angle-card">
-          <div class="angle-thumb-wrap">
-            <div class="angle-placeholder">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-                <path d="M4 7h3l2-2h6l2 2h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" />
-                <circle cx="12" cy="13" r="3.5" />
-              </svg>
-              <span>Awaiting ${escapeHtml(angle)}</span>
-            </div>
-          </div>
-          <div class="angle-body">
-            <div class="row-between">
-              <span class="angle-name">${escapeHtml(meta.title)}</span>
-              <span class="pill pill-neutral">Pending</span>
-            </div>
-            <p class="angle-meta">${escapeHtml(hint)}</p>
-          </div>
-        </article>
-      `;
+      nodes.card.className = "angle-card";
+      nodes.placeholder.classList.remove("hidden");
+      nodes.thumbBtn.classList.add("hidden");
+      nodes.img.removeAttribute("src");
+      nodes.badgeSpan.className = "pill pill-neutral";
+      nodes.badgeSpan.textContent = "Pending";
+      nodes.metaP.textContent = hint;
+      return;
     }
 
     const angleOk = Boolean(photo.angle_ok);
@@ -586,109 +569,436 @@ function renderSessionStatus(data) {
       ? `Ref: ${topRef.item_id || "sample"} (${topRef.angle || angle})`
       : "";
 
-    const badge = angleOk
-      ? `<span class="pill pill-approve">Verified${sim ? ` · ${escapeHtml(sim)}` : ""}</span>`
-      : `<span class="pill pill-review">Check Angle</span>`;
-
-    const mismatchNote = !angleOk
+    const subtitleText = !angleOk
       ? `OpenCLIP saw: ${predicted}${sim ? ` (${sim})` : ""}`
       : refLabel || hint;
 
     const photoUrl = photo.photo_url || "";
-    const cacheBusted = photoUrl ? `${photoUrl}?t=${encodeURIComponent(photo.created_at || photo.id || "1")}` : "";
+    const cacheBusted = photoUrl
+      ? `${photoUrl}?v=${encodeURIComponent(photo.id || photo.created_at || "1")}`
+      : "";
 
-    return `
-      <article class="angle-card ${angleOk ? "is-verified" : "is-warn"}">
-        <div class="angle-thumb-wrap">
-          <button
-            type="button"
-            class="angle-thumb-btn"
-            data-lightbox-url="${escapeHtml(cacheBusted)}"
-            data-lightbox-title="${escapeHtml(meta.title)} (${escapeHtml(angle)})"
-            data-lightbox-sub="${escapeHtml(angleOk ? `Verified by OpenCLIP · ${mismatchNote}` : mismatchNote)}"
-            aria-label="Inspect ${escapeHtml(meta.title)} photo full size"
-          >
-            <img class="angle-thumb-img" src="${escapeHtml(cacheBusted)}" alt="${escapeHtml(meta.title)} capture" loading="lazy" />
-          </button>
-        </div>
-        <div class="angle-body">
-          <div class="row-between">
-            <span class="angle-name">${escapeHtml(meta.title)}</span>
-            ${badge}
-          </div>
-          <p class="angle-meta">${escapeHtml(mismatchNote)}</p>
-        </div>
-      </article>
-    `;
-  }).join("");
+    nodes.card.className = `angle-card ${angleOk ? "is-verified" : "is-warn"}`;
+    nodes.placeholder.classList.add("hidden");
+    nodes.thumbBtn.classList.remove("hidden");
+    if (nodes.img.getAttribute("src") !== cacheBusted) {
+      nodes.img.src = cacheBusted;
+    }
+    nodes.thumbBtn.dataset.lightboxUrl = cacheBusted;
+    nodes.thumbBtn.dataset.lightboxTitle = `${meta.title} (${angle})`;
+    nodes.thumbBtn.dataset.lightboxSub = angleOk
+      ? `Verified by OpenCLIP · ${subtitleText}`
+      : subtitleText;
 
-  // Bind lightbox triggers on thumbnails
-  els.angleGrid.querySelectorAll("[data-lightbox-url]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      openLightbox(
-        btn.dataset.lightboxUrl,
-        btn.dataset.lightboxTitle,
-        btn.dataset.lightboxSub
-      );
-    });
+    nodes.badgeSpan.className = angleOk ? "pill pill-approve" : "pill pill-review";
+    nodes.badgeSpan.textContent = angleOk ? `Verified${sim ? ` · ${sim}` : ""}` : "Check Angle";
+    nodes.metaP.textContent = subtitleText;
   });
 
-  // Render optional Defect Close-Ups strip
-  if (defectPhotos.length > 0) {
-    els.defectSection.classList.remove("hidden");
-    els.defectCountPill.textContent = `${defectPhotos.length} ${defectPhotos.length === 1 ? "shot" : "shots"}`;
-    els.defectStrip.innerHTML = defectPhotos
-      .map((p, idx) => {
+  // Signature-tracked defect strip
+  const nextDefectSig = defectPhotos.map((d) => `${d.id}|${d.filepath}`).join(",");
+  if (state.defectSig !== nextDefectSig) {
+    state.defectSig = nextDefectSig;
+    if (defectPhotos.length === 0) {
+      els.defectSection.classList.add("hidden");
+      els.defectStrip.replaceChildren();
+    } else {
+      els.defectSection.classList.remove("hidden");
+      els.defectCountPill.textContent = `${defectPhotos.length} ${defectPhotos.length === 1 ? "shot" : "shots"}`;
+      els.defectStrip.replaceChildren();
+      defectPhotos.forEach((p, idx) => {
+        const card = document.createElement("div");
+        card.className = "defect-thumb-card";
         const url = p.photo_url || "";
-        return `
-          <div class="defect-thumb-card">
-            <button
-              type="button"
-              class="angle-thumb-btn"
-              data-lightbox-url="${escapeHtml(url)}"
-              data-lightbox-title="Defect Close-Up #${idx + 1}"
-              data-lightbox-sub="Uploaded with coin-scale guidance"
-            >
-              <img src="${escapeHtml(url)}" alt="Defect close-up ${idx + 1}" loading="lazy" />
-            </button>
-            <div class="defect-thumb-caption">Defect #${idx + 1}</div>
-          </div>
-        `;
-      })
-      .join("");
-    els.defectStrip.querySelectorAll("[data-lightbox-url]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        openLightbox(btn.dataset.lightboxUrl, btn.dataset.lightboxTitle, btn.dataset.lightboxSub);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "angle-thumb-btn";
+        const img = document.createElement("img");
+        img.src = url;
+        img.alt = `Defect close-up ${idx + 1}`;
+        img.loading = "lazy";
+        btn.appendChild(img);
+        btn.addEventListener("click", () => {
+          openLightbox(url, `Defect Close-Up #${idx + 1}`, "Coin-scale close-up photo");
+        });
+        const cap = document.createElement("div");
+        cap.className = "defect-thumb-caption";
+        cap.textContent = `Defect #${idx + 1}`;
+        card.appendChild(btn);
+        card.appendChild(cap);
+        els.defectStrip.appendChild(card);
       });
-    });
-  } else {
-    els.defectSection.classList.add("hidden");
-    els.defectStrip.innerHTML = "";
-  }
-
-  // Render Score Report if available
-  if (data.score && !state.isScoring) {
-    renderScoreReport(data.score);
-  } else if (state.isScoring) {
-    els.scoreWaiting.classList.add("hidden");
-    els.scoreReport.classList.add("hidden");
-    els.scoreLoading.classList.remove("hidden");
-  } else {
-    els.scoreReport.classList.add("hidden");
-    els.scoreLoading.classList.add("hidden");
-    els.scoreWaiting.classList.remove("hidden");
+    }
   }
 }
 
+// ============================================================================
+// Workspace Tabs & 3-Step Card-Deck Navigation
+// ============================================================================
+
+function switchTab(tabName) {
+  state.activeTab = tabName;
+  els.tabs.forEach((btn) => {
+    const active = btn.dataset.tab === tabName;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-selected", String(active));
+  });
+  Object.entries(els.panels).forEach(([key, panel]) => {
+    panel.classList.toggle("hidden", key !== tabName);
+  });
+
+  syncPollingLifecycle();
+
+  if (tabName === "queue") {
+    loadReviewQueue();
+  } else if (tabName === "log") {
+    loadSessionsLog();
+  } else if (tabName === "admin") {
+    loadAdminPanel();
+  }
+}
+
+function setWizardStep(step) {
+  state.wizardStep = step;
+
+  [1, 2, 3].forEach((n) => {
+    const card = els.cards[n];
+    const btn = els.wizSteps[n];
+    const isActive = n === step;
+    card.classList.toggle("hidden", !isActive);
+
+    btn.classList.toggle("is-active", isActive);
+    btn.setAttribute("aria-current", isActive ? "step" : "false");
+
+    const hasSession = Boolean(state.sessionId);
+    const hasScore = Boolean(state.lastStatus?.score || state.isScoring);
+    btn.disabled = (n === 2 && !hasSession) || (n === 3 && (!hasSession || (!hasScore && n !== step)));
+    btn.classList.toggle("is-complete", (n === 1 && hasSession && step > 1) || (n === 2 && hasScore && step > 2));
+  });
+
+  syncPollingLifecycle();
+}
+
+function resetToCategoryCard() {
+  stopPolling();
+  state.sessionId = null;
+  state.captureUrl = "";
+  state.qrDataUrl = "";
+  state.lastStatus = null;
+  state.isScoring = false;
+  state.disclosureDirty = false;
+  state.counterCrash = false;
+  state.auditTracePayload = null;
+  resetCaptureDeckSignatures();
+  syncAngleDeck([], "jacket");
+  setWizardStep(1);
+}
+
+// ============================================================================
+// Smart Polling Lifecycle (Stops on "scored", off Step 2, or Manual Mode)
+// ============================================================================
+
+function stopPolling() {
+  if (state.pollTimer) {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+  }
+  els.pollingIndicator.classList.add("hidden");
+}
+
+function shouldPollNow() {
+  if (state.activeTab !== "intake") return false;
+  if (state.wizardStep !== 2) return false;
+  if (!state.sessionId) return false;
+  if (state.isScoring) return false;
+  if (state.lastStatus?.status === "scored") return false;
+  if (Number(state.settings.poll_interval_ms) <= 0) return false;
+  return true;
+}
+
+function syncPollingLifecycle() {
+  if (!shouldPollNow()) {
+    stopPolling();
+    if (
+      state.activeTab === "intake" &&
+      state.wizardStep === 2 &&
+      state.sessionId &&
+      Number(state.settings.poll_interval_ms) <= 0
+    ) {
+      els.pollingIndicator.classList.remove("hidden");
+      els.pollingLabel.textContent = "Manual Poll";
+    }
+    return;
+  }
+
+  const intervalMs = Math.max(500, Number(state.settings.poll_interval_ms) || 2000);
+  stopPolling();
+  els.pollingIndicator.classList.remove("hidden");
+  els.pollingLabel.textContent = `Live · ${(intervalMs / 1000).toFixed(1)}s`;
+  state.pollTimer = setInterval(() => {
+    pollSessionStatus();
+  }, intervalMs);
+}
+
+// ============================================================================
+// Card 1 Actions: Start Session / Quick Local Sample
+// ============================================================================
+
+async function startNewCategorySession(garmentType) {
+  els.pickJacketBtn.disabled = true;
+  els.pickPantsBtn.disabled = true;
+
+  try {
+    const res = await apiJson("/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ garment_type: garmentType }),
+    });
+
+    openSessionInStep(res.session_id, {
+      step: 2,
+      garmentType: res.garment_type || garmentType,
+      captureUrl: res.capture_url,
+      qrDataUrl: res.qr_data_url,
+    });
+    showToast(`Session ${res.session_id} created. Scan the QR code on a phone to capture photos.`, "success");
+    await pollSessionStatus();
+    loadSessionsLog({ silent: true });
+  } catch (err) {
+    showToast(`Could not start session: ${err.message}`, "error", 6000);
+  } finally {
+    els.pickJacketBtn.disabled = false;
+    els.pickPantsBtn.disabled = false;
+  }
+}
+
+function openSessionInStep(
+  sessionId,
+  { step = 2, garmentType = "jacket", captureUrl = "", qrDataUrl = "" } = {}
+) {
+  stopPolling();
+  state.sessionId = sessionId;
+  state.garmentType = garmentType;
+  state.captureUrl = captureUrl || `${window.location.origin}/capture/${sessionId}`;
+  state.qrDataUrl = qrDataUrl || "";
+  state.lastStatus = null;
+  state.disclosureDirty = false;
+  state.counterCrash = false;
+  resetCaptureDeckSignatures();
+  syncCounterDisclosureInputs({ crash: false, usage: "moderate", notes: "" });
+
+  els.captureSessionTitle.textContent = `Session ${sessionId}`;
+  els.captureGarmentPill.textContent = capitalize(garmentType);
+  els.auditSessionTitle.textContent = `Session ${sessionId}`;
+  els.auditGarmentPill.textContent = capitalize(garmentType);
+  els.btnExportXlsx.href = `/export/${encodeURIComponent(sessionId)}.xlsx`;
+
+  els.captureUrlInput.value = state.captureUrl;
+  els.linkOpenCapture.href = state.captureUrl;
+
+  if (state.qrDataUrl) {
+    els.qrImage.src = state.qrDataUrl;
+    els.qrFrameBox.classList.remove("hidden");
+  } else {
+    els.qrImage.removeAttribute("src");
+    els.qrFrameBox.classList.add("hidden");
+  }
+
+  syncAngleDeck([], garmentType);
+  switchTab("intake");
+  setWizardStep(step);
+}
+
+async function loadLocalSampleAndOpen({
+  itemId,
+  garmentType = "jacket",
+  disclosure = null,
+  autoScoreAndOpenAudit = true,
+  triggerBtn = null,
+}) {
+  if (!itemId) {
+    showToast("Select a local sample folder first.", "warn");
+    return;
+  }
+
+  const origLabel = triggerBtn ? triggerBtn.textContent : "";
+  if (triggerBtn) {
+    triggerBtn.disabled = true;
+    triggerBtn.innerHTML = `<span class="spinner" aria-hidden="true"></span> Loading…`;
+  }
+
+  try {
+    const payload = { item_id: itemId, garment_type: garmentType };
+    if (disclosure) payload.disclosure = disclosure;
+
+    const res = await apiJson("/demo/load-sample", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const targetStep = autoScoreAndOpenAudit ? 3 : 2;
+    openSessionInStep(res.session_id, {
+      step: targetStep,
+      garmentType: res.garment_type || garmentType,
+      captureUrl: `${window.location.origin}/capture/${res.session_id}`,
+      qrDataUrl: "",
+    });
+
+    if (autoScoreAndOpenAudit) {
+      state.autoScoredSessions.add(res.session_id);
+      await pollSessionStatus({ skipAutoScore: true });
+      await triggerScore(res.session_id, { useCounterDisclosure: false });
+    } else {
+      await pollSessionStatus();
+    }
+    loadSessionsLog({ silent: true });
+  } catch (err) {
+    showToast(`Failed to load sample ${itemId}: ${err.message}`, "error", 6500);
+  } finally {
+    if (triggerBtn) {
+      triggerBtn.disabled = false;
+      triggerBtn.textContent = origLabel;
+    }
+  }
+}
+
+// ============================================================================
+// Card 2: Polling & Capture Status Sync
+// ============================================================================
+
+function updateDisclosureSummaryPill() {
+  const usageLabel = capitalize(els.counterUsageSelect.value || "moderate");
+  if (state.counterCrash) {
+    els.disclosureSummaryPill.className = "pill pill-reject";
+    els.disclosureSummaryPill.textContent = `Crash Disclosed · ${usageLabel}`;
+  } else {
+    els.disclosureSummaryPill.className = "pill pill-neutral";
+    els.disclosureSummaryPill.textContent = `No Crash · ${usageLabel}`;
+  }
+}
+
+function syncCounterDisclosureInputs(disclosure) {
+  const d = disclosure || {};
+  state.counterCrash = Boolean(d.crash);
+
+  els.counterCrashBtns.forEach((btn) => {
+    const val = btn.dataset.counterCrash === "true";
+    const isSelected = val === state.counterCrash;
+    btn.classList.toggle("is-selected", isSelected && !val);
+    btn.classList.toggle("is-selected-danger", isSelected && val);
+    btn.setAttribute("aria-pressed", String(isSelected));
+  });
+
+  const usage = String(d.usage || d.exposure_band || "moderate").toLowerCase();
+  els.counterUsageSelect.value = ["light", "moderate", "heavy"].includes(usage) ? usage : "moderate";
+  els.counterNotesInput.value = d.notes || "";
+  updateDisclosureSummaryPill();
+}
+
+function getCounterDisclosurePayload() {
+  const usage = els.counterUsageSelect.value || "moderate";
+  return {
+    crash: state.counterCrash,
+    usage,
+    exposure_band: usage,
+    notes: els.counterNotesInput.value.trim(),
+  };
+}
+
+async function pollSessionStatus({ skipAutoScore = false } = {}) {
+  if (!state.sessionId) return;
+  const activeId = state.sessionId;
+
+  try {
+    const data = await apiJson(`/status/${encodeURIComponent(activeId)}`);
+    if (state.sessionId !== activeId) return;
+
+    state.lastStatus = data;
+    state.garmentType = data.garment_type || state.garmentType;
+    renderCaptureState(data);
+
+    // Stop polling immediately once scored
+    if (data.status === "scored") {
+      stopPolling();
+      if (data.score) {
+        renderAuditDossier(data.score);
+      }
+      setWizardStep(state.wizardStep);
+      return;
+    }
+
+    // Auto-score & advance to Card 3 when phone completes capture (if enabled in Admin settings)
+    const isReady = data.status === "ready_to_score" || Boolean(data.ready_to_score);
+    if (
+      !skipAutoScore &&
+      state.settings.auto_score_on_complete &&
+      isReady &&
+      !data.score &&
+      !state.isScoring &&
+      !state.autoScoredSessions.has(activeId) &&
+      Array.isArray(data.photos) &&
+      data.photos.length > 0
+    ) {
+      state.autoScoredSessions.add(activeId);
+      setWizardStep(3);
+      await triggerScore(activeId, { useCounterDisclosure: false });
+    }
+  } catch (err) {
+    console.warn("Session poll warning:", err);
+  }
+}
+
+function renderCaptureState(data) {
+  const garment = data.garment_type || "jacket";
+  els.captureGarmentPill.textContent = capitalize(garment);
+  els.auditGarmentPill.textContent = capitalize(garment);
+
+  const st = statusPillInfo(data.status);
+  els.captureStatusPill.className = `pill ${st.cls}`;
+  els.captureStatusPill.textContent = state.isScoring ? "Scoring…" : st.label;
+
+  const photos = Array.isArray(data.photos) ? data.photos : [];
+  syncAngleDeck(photos, garment);
+
+  if (!state.disclosureDirty && data.disclosure) {
+    syncCounterDisclosureInputs(data.disclosure);
+  }
+
+  els.btnContinueAudit.disabled = photos.length === 0 || state.isScoring;
+  if (data.score) {
+    els.btnContinueAudit.textContent = "Open Audit Dossier →";
+    els.captureReadyHint.textContent = "Scored — open Card 3 to review results or re-score.";
+  } else if (data.status === "ready_to_score") {
+    els.btnContinueAudit.textContent = "Run Audit & Score →";
+    els.captureReadyHint.textContent = "Mobile capture finished — ready to run verification audit.";
+  } else if (photos.length > 0) {
+    els.btnContinueAudit.textContent = "Continue to Audit →";
+    els.captureReadyHint.textContent = `${photos.length} photo${photos.length === 1 ? "" : "s"} received — finish on phone or continue now.`;
+  } else {
+    els.btnContinueAudit.textContent = "Continue to Audit →";
+    els.captureReadyHint.textContent = "Waiting for mobile uploads…";
+  }
+
+  if (data.score && !state.isScoring) {
+    renderAuditDossier(data.score);
+  }
+}
+
+// ============================================================================
+// Card 3: Scoring, Audit Dossier & Frontier Agent Trace
+// ============================================================================
+
 async function triggerScore(sessionId, { useCounterDisclosure = true } = {}) {
   if (!sessionId || state.isScoring) return;
+  stopPolling();
   state.isScoring = true;
-  els.btnScoreNow.disabled = true;
-  els.scoreWaiting.classList.add("hidden");
+  setWizardStep(3);
+
   els.scoreReport.classList.add("hidden");
   els.scoreLoading.classList.remove("hidden");
-  els.sessionStatusPill.className = "pill pill-cream";
-  els.sessionStatusPill.textContent = "Scoring…";
+  els.scoreLoadingDetail.textContent = `Invoking ${state.settings.vision_deployment || "gpt-4.1"} rubric inspection & deterministic 0–100 scoring…`;
+  els.btnAuditRescore.disabled = true;
 
   try {
     const body = { session_id: sessionId };
@@ -703,14 +1013,21 @@ async function triggerScore(sessionId, { useCounterDisclosure = true } = {}) {
 
     state.disclosureDirty = false;
     state.isScoring = false;
-    renderScoreReport(result);
+    state.lastScoreSig = ""; // force render new result
+    if (state.lastStatus) {
+      state.lastStatus.status = "scored";
+      state.lastStatus.score = result;
+    } else {
+      state.lastStatus = { session_id: sessionId, status: "scored", score: result };
+    }
+
+    renderAuditDossier(result);
+    setWizardStep(3);
     showToast(
       `Photo Coverage + Damage Disclosure Score ready: ${result.total_score}/100 (${result.decision_label || result.decision}).`,
       result.decision === "auto_approved" ? "success" : result.decision === "human_review" ? "warn" : "error"
     );
 
-    // Refresh status, queue badge, and session log
-    await pollSessionStatus();
     loadReviewQueue({ silent: true });
     loadSessionsLog({ silent: true });
   } catch (err) {
@@ -718,16 +1035,22 @@ async function triggerScore(sessionId, { useCounterDisclosure = true } = {}) {
     els.scoreLoading.classList.add("hidden");
     if (state.lastStatus?.score) {
       els.scoreReport.classList.remove("hidden");
-    } else {
-      els.scoreWaiting.classList.remove("hidden");
     }
-    els.btnScoreNow.disabled = false;
     showToast(`Scoring failed: ${err.message}`, "error", 7000);
+  } finally {
+    els.btnAuditRescore.disabled = false;
   }
 }
 
-function renderScoreReport(score) {
-  els.scoreWaiting.classList.add("hidden");
+function renderAuditDossier(score) {
+  if (!score) return;
+
+  const scoreSig = `${score.session_id || state.sessionId}|${score.total_score}|${score.decision}|${score.updated_at || ""}|${score.agent_trace?.latency_ms || ""}`;
+  if (state.lastScoreSig === scoreSig && !els.scoreReport.classList.contains("hidden")) {
+    return;
+  }
+  state.lastScoreSig = scoreSig;
+
   els.scoreLoading.classList.add("hidden");
   els.scoreReport.classList.remove("hidden");
 
@@ -735,6 +1058,15 @@ function renderScoreReport(score) {
   const coverage = Math.max(0, Math.min(50, Number(score.photo_coverage_score ?? 0)));
   const damage = Math.max(0, Math.min(50, Number(score.damage_disclosure_score ?? 0)));
   const meta = decisionMeta(score.decision, total);
+
+  // Brand pill on Audit header
+  const brand = score.extracted_labels?.brand;
+  if (brand && brand.toLowerCase() !== "unknown") {
+    els.auditBrandPill.textContent = brand;
+    els.auditBrandPill.classList.remove("hidden");
+  } else {
+    els.auditBrandPill.classList.add("hidden");
+  }
 
   // Decision Banner
   els.decisionBanner.className = `decision-banner is-${meta.tone}`;
@@ -745,7 +1077,7 @@ function renderScoreReport(score) {
   els.decisionTitle.textContent = score.decision_label || meta.title;
   els.decisionSummary.textContent = score.summary || "";
 
-  // SVG Gauge (circumference for r=50 is 314.16)
+  // Radial Gauge
   const circumference = 2 * Math.PI * 50;
   const offset = circumference * (1 - total / 100);
   const strokeColor =
@@ -764,7 +1096,7 @@ function renderScoreReport(score) {
     `Photo Coverage plus Damage Disclosure Score: ${total} out of 100`
   );
 
-  // Coverage & Damage Disclosure Bars
+  // Subscore Bars
   els.scoreCoverageText.textContent = `${coverage} / 50`;
   els.scoreCoverageBar.style.width = `${(coverage / 50) * 100}%`;
   els.scoreCoverageBar.className = `progress-fill is-${coverage >= 40 ? "approve" : coverage >= 25 ? "review" : "reject"}`;
@@ -773,29 +1105,27 @@ function renderScoreReport(score) {
   els.scoreDamageBar.style.width = `${(damage / 50) * 100}%`;
   els.scoreDamageBar.className = `progress-fill is-${damage >= 40 ? "approve" : damage >= 25 ? "review" : "reject"}`;
 
-  // Documentation-only protection disclosure status
+  // Documentation status pill
   const protStatus = String(score.protection_disclosure_status || "unknown").toLowerCase();
   if (protStatus === "confirmed") {
     els.protectionDisclosurePill.className = "pill pill-approve";
     els.protectionDisclosurePill.textContent = "Confirmed (Documented)";
   } else if (protStatus === "reduced") {
     els.protectionDisclosurePill.className = "pill pill-reject";
-    els.protectionDisclosurePill.textContent = "Reduced (Disclosed / Flagged)";
+    els.protectionDisclosurePill.textContent = "Reduced (Flagged)";
   } else {
     els.protectionDisclosurePill.className = "pill pill-neutral";
     els.protectionDisclosurePill.textContent = "Unknown (Normal on older gear)";
   }
 
-  // Hard Gate Alert
+  // Hard Gate Banner
   const hardGateReasons = Array.isArray(score.hard_gate_reasons) ? score.hard_gate_reasons : [];
   if (score.hard_gate_triggered && hardGateReasons.length > 0) {
     els.hardGateBox.classList.remove("hidden");
-    els.hardGateList.innerHTML = hardGateReasons
-      .map((r) => `<li>${escapeHtml(r)}</li>`)
-      .join("");
+    els.hardGateList.innerHTML = hardGateReasons.map((r) => `<li>${escapeHtml(r)}</li>`).join("");
   } else {
     els.hardGateBox.classList.add("hidden");
-    els.hardGateList.innerHTML = "";
+    els.hardGateList.replaceChildren();
   }
 
   // Contradiction Alert
@@ -803,7 +1133,7 @@ function renderScoreReport(score) {
     els.contradictionBox.classList.remove("hidden");
     els.contradictionReason.textContent =
       score.contradiction_reason ||
-      "Declared rider history appears to contradict visible photo evidence. Review carefully in hand.";
+      "Declared rider history contradicts visible photo evidence. Inspect carefully in hand.";
   } else {
     els.contradictionBox.classList.add("hidden");
   }
@@ -812,14 +1142,14 @@ function renderScoreReport(score) {
   const retakeAngles = Array.isArray(score.retake_angles) ? score.retake_angles : [];
   if (score.decision === "rejected_retake" && retakeAngles.length > 0) {
     els.retakeBox.classList.remove("hidden");
-    els.retakeAnglesText.textContent = `Ask the rider to capture clearer photos for: ${retakeAngles
+    els.retakeAnglesText.textContent = `Retake clearer photos for: ${retakeAngles
       .map((a) => ANGLE_META[a]?.title || capitalize(a))
       .join(", ")}.`;
   } else {
     els.retakeBox.classList.add("hidden");
   }
 
-  // Upcycling & Responsible Retirement Card
+  // Circular Upcycling Card
   const upcycle = score.upcycle_plan;
   if (upcycle && typeof upcycle === "object") {
     els.upcycleCard.classList.remove("hidden");
@@ -835,34 +1165,31 @@ function renderScoreReport(score) {
       : Array.isArray(upcycle.recovery_pathways)
       ? upcycle.recovery_pathways
       : [];
-    els.upcyclePathways.innerHTML = pathways
-      .map((step) => `<li>${escapeHtml(step)}</li>`)
-      .join("");
+    els.upcyclePathways.innerHTML = pathways.map((step) => `<li>${escapeHtml(step)}</li>`).join("");
 
     const tradeInMsg =
       upcycle.trade_in_note ||
       upcycle.trade_in_conversation ||
-      "Invite the rider into an in-store gear consultation to retire this piece responsibly and explore trade-in options toward new riding gear.";
+      "Start an in-store gear consultation with Moto Reloaded staff to retire this garment responsibly and explore trade-in options toward new riding gear.";
     els.upcycleTradein.innerHTML = `
-      <strong>In-Store Responsible Retirement &amp; New-Gear Trade-In Conversation</strong>
+      <strong>In-Store Responsible Retirement &amp; New-Gear Trade-In</strong>
       ${escapeHtml(tradeInMsg)}
     `;
     els.upcycleClerkStep.textContent = upcycle.next_step_for_clerk
-      ? `Store Clerk Action: ${upcycle.next_step_for_clerk}`
+      ? `Store Staff Next Step: ${upcycle.next_step_for_clerk}`
       : "";
   } else {
     els.upcycleCard.classList.add("hidden");
   }
 
-  // Extracted Labels Strip (with North America CE-label neutrality)
+  // Extracted Labels Strip (North America CE neutrality)
   const labels = score.extracted_labels || {};
   const ceVal = String(labels.ce_label || "none").trim();
   const isCeNone = ceVal.toLowerCase() === "none" || ceVal === "";
   const ceDisplay = isCeNone ? "None shown" : `EN 17092 Class ${ceVal}`;
   const ceNote = isCeNone
-    ? labels.ce_note || "Normal in North America — absence of a CE label is not a penalty."
-    : "Documentation label observed in photo.";
-
+    ? labels.ce_note || "Normal in North America — zero penalty."
+    : "Documentation label observed.";
   const matGroup = String(labels.material_group || "unknown").replace(/_/g, " / ");
 
   els.labelsGrid.innerHTML = `
@@ -875,12 +1202,12 @@ function renderScoreReport(score) {
       <span class="label-tile-val">${escapeHtml(labels.size || "Unknown")}</span>
     </div>
     <div class="label-tile">
-      <span class="label-tile-key">CE EN 17092 Label</span>
+      <span class="label-tile-key">CE EN 17092</span>
       <span class="label-tile-val">${escapeHtml(ceDisplay)}</span>
       <span class="label-tile-note">${escapeHtml(ceNote)}</span>
     </div>
     <div class="label-tile">
-      <span class="label-tile-key">Fibre Composition (${escapeHtml(capitalize(matGroup))})</span>
+      <span class="label-tile-key">Fibre (${escapeHtml(capitalize(matGroup))})</span>
       <span class="label-tile-val">${escapeHtml(labels.composition || "Not determinable")}</span>
     </div>
   `;
@@ -927,14 +1254,84 @@ function renderScoreReport(score) {
       .join("");
   }
 
-  // Compliance Disclaimer
+  // Frontier Agent Output & Prompt Trace Card
+  renderAuditAgentTrace(score.agent_trace);
+
+  // Inline Staff Review buttons if decision is human_review
+  if (score.decision === "human_review") {
+    els.auditInlineReview.classList.remove("hidden");
+  } else {
+    els.auditInlineReview.classList.add("hidden");
+  }
+
   els.scoreDisclaimer.textContent =
     score.disclaimer ||
     "Photo coverage and damage disclosure check only. Moto Reloaded and this tool do not assess, certify, test, or guarantee protective performance.";
 }
 
+function buildTraceStatsHtml(trace) {
+  const usage = trace.usage || {};
+  const promptTok = usage.prompt_tokens ?? "—";
+  const compTok = usage.completion_tokens ?? "—";
+  const totalTok = usage.total_tokens ?? "—";
+  const latency = trace.latency_ms !== null && trace.latency_ms !== undefined ? `${trace.latency_ms} ms` : "—";
+
+  return `
+    <div class="trace-stat">
+      <span class="trace-stat-key">Agent</span>
+      <span class="trace-stat-val">${escapeHtml(trace.agent_label || "Vision Rubric Agent")}</span>
+    </div>
+    <div class="trace-stat">
+      <span class="trace-stat-key">Provider &amp; Deployment</span>
+      <span class="trace-stat-val">${escapeHtml(trace.provider || "Azure OpenAI")} · ${escapeHtml(trace.deployment || "—")}</span>
+    </div>
+    <div class="trace-stat">
+      <span class="trace-stat-key">Model Returned</span>
+      <span class="trace-stat-val mono">${escapeHtml(trace.model_returned || trace.deployment || "—")}</span>
+    </div>
+    <div class="trace-stat">
+      <span class="trace-stat-key">Latency</span>
+      <span class="trace-stat-val tabular">${escapeHtml(latency)}</span>
+    </div>
+    <div class="trace-stat">
+      <span class="trace-stat-key">Tokens (P / C / Total)</span>
+      <span class="trace-stat-val tabular">${escapeHtml(`${promptTok} / ${compTok} / ${totalTok}`)}</span>
+    </div>
+    <div class="trace-stat">
+      <span class="trace-stat-key">Stage-1 OpenCLIP</span>
+      <span class="trace-stat-val">${escapeHtml(trace.clip_stage1_model || "OpenCLIP ViT-B-32 (frozen)")}</span>
+    </div>
+  `;
+}
+
+function renderAuditAgentTrace(trace) {
+  if (!trace || typeof trace !== "object") {
+    state.auditTracePayload = null;
+    els.auditTraceHeading.textContent = "Frontier Trace Unavailable";
+    els.auditTraceProviderPill.textContent = "No Trace";
+    els.auditTraceStats.innerHTML = `
+      <div class="trace-stat" style="grid-column: 1 / -1;">
+        <span class="trace-stat-key">Info</span>
+        <span class="trace-stat-val">Re-score this session to capture full Frontier Agent prompt &amp; JSON trace.</span>
+      </div>
+    `;
+    els.auditTraceSystem.textContent = "No system prompt captured for this record.";
+    els.auditTraceUser.textContent = "No user prompt captured for this record.";
+    els.auditTraceRaw.textContent = "{}";
+    return;
+  }
+
+  state.auditTracePayload = trace;
+  els.auditTraceHeading.textContent = trace.agent_label || "Azure OpenAI Vision Rubric Agent";
+  els.auditTraceProviderPill.textContent = `${trace.provider || "Azure OpenAI"} · ${trace.deployment || "gpt-4.1"}`;
+  els.auditTraceStats.innerHTML = buildTraceStatsHtml(trace);
+  els.auditTraceSystem.textContent = trace.system_prompt || "(Not provided)";
+  els.auditTraceUser.textContent = trace.user_prompt || "(Not provided)";
+  els.auditTraceRaw.textContent = prettyJsonText(trace.raw_response);
+}
+
 // ============================================================================
-// Review Queue (50-84)
+// Workspace 2: Review Queue
 // ============================================================================
 
 async function loadReviewQueue({ silent = false } = {}) {
@@ -943,9 +1340,7 @@ async function loadReviewQueue({ silent = false } = {}) {
     const items = Array.isArray(data?.items) ? data.items : [];
     state.queueItems = items;
 
-    const pendingCount = items.filter(
-      (i) => (i.review_status || i.status) === "pending"
-    ).length;
+    const pendingCount = items.filter((i) => (i.review_status || i.status) === "pending").length;
     els.queueBadge.textContent = String(pendingCount);
     els.queueBadge.classList.toggle("is-warn", pendingCount > 0);
 
@@ -953,9 +1348,7 @@ async function loadReviewQueue({ silent = false } = {}) {
       renderReviewQueue();
     }
   } catch (err) {
-    if (!silent) {
-      showToast(`Could not load review queue: ${err.message}`, "error");
-    }
+    if (!silent) showToast(`Could not load review queue: ${err.message}`, "error");
   }
 }
 
@@ -971,8 +1364,7 @@ function renderReviewQueue() {
       <div class="empty-state" style="grid-column: 1 / -1;">
         <h3>No items in this review view</h3>
         <p style="font-size: 0.88rem;">
-          Sessions scoring <strong>50–84</strong> automatically appear here for Alex &amp; Barbara's
-          physical in-hand inspection.
+          Sessions scoring in the human-review band automatically appear here for in-hand store staff inspection.
         </p>
       </div>
     `;
@@ -987,7 +1379,7 @@ function renderReviewQueue() {
           ? `<span class="pill pill-approve">Approved In-Hand</span>`
           : reviewStatus === "declined_upcycle"
           ? `<span class="pill pill-reject">Declined → Upcycle</span>`
-          : `<span class="pill pill-review">Pending In-Hand Check</span>`;
+          : `<span class="pill pill-review">Pending Staff Review</span>`;
 
       const scoreObj = item.score || {};
       const failedItems = Array.isArray(scoreObj.checklist)
@@ -1005,11 +1397,11 @@ function renderReviewQueue() {
               )
               .join("")}</ul>`
           : `<p style="font-size: 0.84rem; color: var(--fg-muted);">${escapeHtml(
-              scoreObj.summary || "Queued for physical confirmation."
+              scoreObj.summary || "Queued for in-hand confirmation."
             )}</p>`;
 
       return `
-        <article class="queue-card ${reviewStatus === "pending" ? "is-pending" : ""}" data-queue-session="${escapeHtml(item.session_id)}">
+        <article class="queue-card ${reviewStatus === "pending" ? "is-pending" : ""}">
           <div class="row-between">
             <div class="row-wrap">
               <span class="pill pill-black mono">${escapeHtml(item.session_id)}</span>
@@ -1041,7 +1433,7 @@ function renderReviewQueue() {
           </div>
 
           <div>
-            <label class="field-label" for="notes-${escapeHtml(item.session_id)}">Alex / Barbara In-Hand Notes</label>
+            <label class="field-label" for="notes-${escapeHtml(item.session_id)}">Staff Inspection Notes</label>
             <textarea
               id="notes-${escapeHtml(item.session_id)}"
               class="textarea"
@@ -1070,10 +1462,10 @@ function renderReviewQueue() {
             <button
               type="button"
               class="btn btn-ghost btn-sm"
-              data-open-session="${escapeHtml(item.session_id)}"
+              data-open-audit="${escapeHtml(item.session_id)}"
               data-open-garment="${escapeHtml(item.garment_type || "jacket")}"
             >
-              Open Report
+              Open Audit Card →
             </button>
           </div>
         </article>
@@ -1081,7 +1473,6 @@ function renderReviewQueue() {
     })
     .join("");
 
-  // Wire queue card buttons
   els.queueList.querySelectorAll("[data-review-action]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const sid = btn.dataset.sessionId;
@@ -1091,17 +1482,7 @@ function renderReviewQueue() {
 
       btn.disabled = true;
       try {
-        await apiJson(`/review-queue/${encodeURIComponent(sid)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: nextStatus, staff_notes: staffNotes }),
-        });
-        showToast(
-          nextStatus === "approved"
-            ? `Session ${sid} marked Approved In-Hand.`
-            : `Session ${sid} declined for buy-in and routed to Upcycling.`,
-          nextStatus === "approved" ? "success" : "warn"
-        );
+        await submitReviewResolution(sid, nextStatus, staffNotes);
         await loadReviewQueue();
       } catch (err) {
         showToast(`Could not update review item: ${err.message}`, "error");
@@ -1110,15 +1491,29 @@ function renderReviewQueue() {
     });
   });
 
-  els.queueList.querySelectorAll("[data-open-session]").forEach((btn) => {
+  els.queueList.querySelectorAll("[data-open-audit]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      reopenExistingSession(btn.dataset.openSession, btn.dataset.openGarment);
+      openExistingSessionInAudit(btn.dataset.openAudit, btn.dataset.openGarment);
     });
   });
 }
 
+async function submitReviewResolution(sessionId, status, staffNotes) {
+  await apiJson(`/review-queue/${encodeURIComponent(sessionId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, staff_notes: staffNotes }),
+  });
+  showToast(
+    status === "approved"
+      ? `Session ${sessionId} marked Approved In-Hand.`
+      : `Session ${sessionId} declined for buy-in and routed to Upcycling.`,
+    status === "approved" ? "success" : "warn"
+  );
+}
+
 // ============================================================================
-// Intake Log Tab
+// Workspace 3: Intake Ledger
 // ============================================================================
 
 async function loadSessionsLog({ silent = false } = {}) {
@@ -1132,9 +1527,7 @@ async function loadSessionsLog({ silent = false } = {}) {
       renderSessionsLog();
     }
   } catch (err) {
-    if (!silent) {
-      showToast(`Could not load session log: ${err.message}`, "error");
-    }
+    if (!silent) showToast(`Could not load intake ledger: ${err.message}`, "error");
   }
 }
 
@@ -1143,7 +1536,7 @@ function renderSessionsLog() {
     els.logTbody.innerHTML = `
       <tr>
         <td colspan="8" style="text-align:center; padding: 1.5rem; color: var(--fg-muted);">
-          No intake sessions recorded yet. Start a session or load a local sample from Live Intake.
+          No intake records yet. Start a new intake from Card 1 or run a sample in Admin &amp; Debug.
         </td>
       </tr>
     `;
@@ -1152,27 +1545,37 @@ function renderSessionsLog() {
 
   els.logTbody.innerHTML = state.sessions
     .map((s) => {
-      const st = statusPillInfo(s.status);
       const dec = s.decision ? decisionMeta(s.decision, s.total_score) : null;
       const scoreCell =
         s.total_score !== null && s.total_score !== undefined
           ? `<strong class="tabular">${escapeHtml(s.total_score)} / 100</strong>`
           : `<span style="color:var(--fg-muted);">—</span>`;
-      const routingCell = dec
+      const decisionCell = dec
         ? `<span class="pill ${dec.badgeClass}">${escapeHtml(dec.bandText)}</span>`
-        : `<span class="pill pill-neutral">Pending</span>`;
+        : `<span class="pill pill-neutral">${escapeHtml(statusPillInfo(s.status).label)}</span>`;
+      const brandRef = s.brand || s.disclosure?.source_item_id || "—";
 
       return `
-        <tr class="is-clickable" data-log-session="${escapeHtml(s.session_id)}" data-log-garment="${escapeHtml(s.garment_type || "jacket")}">
+        <tr class="is-clickable" data-log-session="${escapeHtml(s.session_id)}" data-log-garment="${escapeHtml(s.garment_type || "jacket")}" data-log-scored="${s.status === "scored" ? "true" : "false"}">
           <td class="mono" style="font-weight: 700; color: var(--fg-primary);">${escapeHtml(s.session_id)}</td>
           <td>${escapeHtml(capitalize(s.garment_type || "jacket"))}</td>
+          <td>${escapeHtml(brandRef)}</td>
           <td class="tabular">${escapeHtml(s.photo_count ?? 0)}</td>
-          <td><span class="pill ${st.cls}">${escapeHtml(st.label)}</span></td>
           <td>${scoreCell}</td>
-          <td>${routingCell}</td>
+          <td>${decisionCell}</td>
           <td style="white-space: nowrap;">${escapeHtml(formatDate(s.updated_at || s.created_at))}</td>
           <td>
-            <button type="button" class="btn btn-secondary btn-sm">Open</button>
+            <div class="row-wrap" style="gap: 0.4rem;">
+              <button type="button" class="btn btn-primary btn-sm" data-ledger-audit="${escapeHtml(s.session_id)}">Audit</button>
+              <a
+                href="/export/${encodeURIComponent(s.session_id)}.xlsx"
+                download
+                class="btn btn-secondary btn-sm"
+                data-ledger-export="true"
+              >
+                .xlsx
+              </a>
+            </div>
           </td>
         </tr>
       `;
@@ -1180,21 +1583,278 @@ function renderSessionsLog() {
     .join("");
 
   els.logTbody.querySelectorAll("[data-log-session]").forEach((row) => {
-    row.addEventListener("click", () => {
-      reopenExistingSession(row.dataset.logSession, row.dataset.logGarment);
+    row.addEventListener("click", (evt) => {
+      if (evt.target.closest("[data-ledger-export]")) return;
+      const isScored = row.dataset.logScored === "true";
+      if (isScored) {
+        openExistingSessionInAudit(row.dataset.logSession, row.dataset.logGarment);
+      } else {
+        openExistingSessionInCapture(row.dataset.logSession, row.dataset.logGarment);
+      }
     });
   });
 }
 
-async function reopenExistingSession(sessionId, garmentType = "jacket") {
-  // Prevent unintended auto-scoring when inspecting a previously saved session
+async function openExistingSessionInAudit(sessionId, garmentType = "jacket") {
   state.autoScoredSessions.add(sessionId);
-  activateSession(sessionId, {
+  openSessionInStep(sessionId, {
+    step: 3,
     garmentType,
     captureUrl: `${window.location.origin}/capture/${sessionId}`,
     qrDataUrl: "",
   });
-  await pollSessionStatus();
+  await pollSessionStatus({ skipAutoScore: true });
+  if (!state.lastStatus?.score) {
+    setWizardStep(2);
+  }
+}
+
+async function openExistingSessionInCapture(sessionId, garmentType = "jacket") {
+  state.autoScoredSessions.add(sessionId);
+  openSessionInStep(sessionId, {
+    step: 2,
+    garmentType,
+    captureUrl: `${window.location.origin}/capture/${sessionId}`,
+    qrDataUrl: "",
+  });
+  await pollSessionStatus({ skipAutoScore: true });
+}
+
+// ============================================================================
+// Workspace 4: Admin & Debug (Settings, Diagnostics, Sandbox, Latest Trace)
+// ============================================================================
+
+async function loadRuntimeSettings({ silent = true } = {}) {
+  try {
+    const data = await apiJson("/admin/settings");
+    if (data?.settings) {
+      state.settings = { ...DEFAULT_RUNTIME_SETTINGS, ...data.settings };
+    }
+    if (Array.isArray(data?.available_deployments) && data.available_deployments.length > 0) {
+      state.availableDeployments = data.available_deployments;
+    }
+    applySettingsToUi();
+  } catch (err) {
+    if (!silent) showToast(`Could not load runtime settings: ${err.message}`, "error");
+  }
+}
+
+function applySettingsToUi() {
+  const s = state.settings;
+  els.headerModelPill.textContent = `${s.vision_deployment || "gpt-4.1"} · Inference-Only`;
+
+  // Populate deployment select
+  els.setDeployment.innerHTML = state.availableDeployments
+    .map((dep) => `<option value="${escapeHtml(dep)}">${escapeHtml(dep)}</option>`)
+    .join("");
+  els.setDeployment.value = s.vision_deployment || "gpt-4.1";
+
+  // Poll interval select (add custom option if persisted value isn't in standard presets)
+  const pollVal = String(s.poll_interval_ms ?? 2000);
+  if (!Array.from(els.setPollInterval.options).some((opt) => opt.value === pollVal)) {
+    const opt = document.createElement("option");
+    opt.value = pollVal;
+    opt.textContent = `${pollVal} ms (Custom)`;
+    els.setPollInterval.appendChild(opt);
+  }
+  els.setPollInterval.value = pollVal;
+
+  els.setTemperature.value = String(s.temperature ?? 0.1);
+  els.setMaxTokens.value = String(s.max_tokens ?? 1800);
+  els.setClipThreshold.value = String(s.clip_warn_threshold ?? 0.22);
+  els.setPublicUrl.value = s.public_base_url || "";
+  els.setAutoApproveMin.value = String(s.auto_approve_min ?? 85);
+  els.setHumanReviewMin.value = String(s.human_review_min ?? 50);
+  els.setAutoScore.checked = Boolean(s.auto_score_on_complete);
+
+  syncPollingLifecycle();
+}
+
+async function handleSaveSettings(evt) {
+  evt.preventDefault();
+  els.btnSaveSettings.disabled = true;
+  els.btnSaveSettings.textContent = "Saving…";
+
+  try {
+    const payload = {
+      vision_deployment: els.setDeployment.value,
+      poll_interval_ms: Number(els.setPollInterval.value),
+      temperature: Number(els.setTemperature.value),
+      max_tokens: Number(els.setMaxTokens.value),
+      clip_warn_threshold: Number(els.setClipThreshold.value),
+      public_base_url: els.setPublicUrl.value.trim(),
+      auto_approve_min: Number(els.setAutoApproveMin.value),
+      human_review_min: Number(els.setHumanReviewMin.value),
+      auto_score_on_complete: Boolean(els.setAutoScore.checked),
+    };
+
+    const data = await apiJson("/admin/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (data?.settings) {
+      state.settings = { ...DEFAULT_RUNTIME_SETTINGS, ...data.settings };
+      applySettingsToUi();
+    }
+    showToast("Runtime settings saved and applied immediately.", "success");
+    loadAdminDiagnostics({ silent: true });
+  } catch (err) {
+    showToast(`Settings rejected: ${err.message}`, "error", 6500);
+  } finally {
+    els.btnSaveSettings.disabled = false;
+    els.btnSaveSettings.textContent = "Save Settings";
+  }
+}
+
+async function loadAdminDiagnostics({ silent = false } = {}) {
+  try {
+    const diag = await apiJson("/admin/diagnostics");
+    state.diagnostics = diag;
+    renderAdminDiagnostics(diag);
+  } catch (err) {
+    if (!silent) showToast(`Could not load diagnostics: ${err.message}`, "error");
+  }
+}
+
+function renderAdminDiagnostics(diag) {
+  const azure = diag?.azure || {};
+  const clip = diag?.openclip || {};
+  const dbInfo = diag?.database || {};
+  const compliance = diag?.compliance || {};
+
+  const azureBadge = azure.configured
+    ? `<span class="pill pill-approve">Configured</span>`
+    : `<span class="pill pill-reject">Missing Env</span>`;
+
+  const refsCount = clip.refs_count ?? 0;
+  const clipBadge =
+    refsCount > 0
+      ? `<span class="pill pill-approve">${escapeHtml(refsCount)} Vectors</span>`
+      : `<span class="pill pill-review">Zero-Shot Fallback</span>`;
+
+  els.adminDiagGrid.innerHTML = `
+    <div class="diag-card">
+      <div class="row-between">
+        <span class="trace-stat-key">Azure OpenAI Vision</span>
+        ${azureBadge}
+      </div>
+      <strong class="mono" style="font-size: 0.85rem;">${escapeHtml(azure.endpoint_host || "Not configured")}</strong>
+      <div style="font-size: 0.8rem; color: var(--fg-muted);">
+        Deployment: <strong>${escapeHtml(azure.active_deployment || state.settings.vision_deployment)}</strong> · API ${escapeHtml(azure.api_version || "—")}
+      </div>
+    </div>
+
+    <div class="diag-card">
+      <div class="row-between">
+        <span class="trace-stat-key">OpenCLIP Stage 1</span>
+        ${clipBadge}
+      </div>
+      <strong style="font-size: 0.88rem;">${escapeHtml(clip.checkpoint || "ViT-B-32")} (${escapeHtml(clip.pretrained || "laion2b_s34b_b79k")})</strong>
+      <div style="font-size: 0.8rem; color: var(--fg-muted);">
+        Device: <strong>${escapeHtml(clip.device || "auto")}</strong> · Model ${clip.model_loaded ? "loaded" : "lazy-ready"}
+      </div>
+    </div>
+
+    <div class="diag-card">
+      <div class="row-between">
+        <span class="trace-stat-key">SQLite Ledger</span>
+        <span class="pill pill-black tabular">${escapeHtml(dbInfo.session_count ?? 0)} Sessions</span>
+      </div>
+      <strong class="mono" style="font-size: 0.8rem; word-break: break-all;">${escapeHtml(dbInfo.db_path || "intake.db")}</strong>
+      <div style="font-size: 0.8rem; color: var(--fg-muted);">
+        Pending Staff Reviews: <strong>${escapeHtml(dbInfo.pending_review_count ?? 0)}</strong>
+      </div>
+    </div>
+
+    <div class="diag-card">
+      <div class="row-between">
+        <span class="trace-stat-key">Compliance Locks</span>
+        <span class="pill pill-reject">Hard Gate Locked</span>
+      </div>
+      <strong style="font-size: 0.88rem;">Inference-Only · Zero Training</strong>
+      <div style="font-size: 0.8rem; color: var(--fg-muted);">
+        ${compliance.hard_gate_locked !== false ? "Crash / contamination / Zone-1 capped <= 49." : "Check lock."}
+      </div>
+    </div>
+  `;
+
+  // Render Latest Frontier Agent Trace (prefer diagnostics, fallback to current audit trace)
+  const latest = diag?.latest_agent_trace;
+  const trace = latest?.agent_trace || state.auditTracePayload;
+
+  if (!trace) {
+    state.latestTracePayload = null;
+    els.adminTraceEmpty.classList.remove("hidden");
+    els.adminTraceContent.classList.add("hidden");
+    return;
+  }
+
+  state.latestTracePayload = trace;
+  els.adminTraceEmpty.classList.add("hidden");
+  els.adminTraceContent.classList.remove("hidden");
+
+  if (latest?.session_id) {
+    els.adminTraceSubtitle.textContent = `Session ${latest.session_id} (${capitalize(
+      latest.garment_type || "garment"
+    )}) · Score ${latest.total_score ?? "—"}/100 · Updated ${formatDate(latest.updated_at)}`;
+  }
+
+  els.adminTraceStats.innerHTML = buildTraceStatsHtml(trace);
+  els.adminTraceSystem.textContent = trace.system_prompt || "(Not provided)";
+  els.adminTraceUser.textContent = trace.user_prompt || "(Not provided)";
+  els.adminTraceRaw.textContent = prettyJsonText(trace.raw_response);
+}
+
+async function loadAdminPanel() {
+  await Promise.all([loadRuntimeSettings({ silent: false }), loadAdminDiagnostics({ silent: false })]);
+}
+
+async function loadDemoSamplesList() {
+  try {
+    const data = await apiJson("/demo/samples");
+    const items = Array.isArray(data?.items) ? data.items : [];
+    const optionsHtml = items.length
+      ? items.map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join("")
+      : `<option value="">No local samples found</option>`;
+
+    els.card1SampleSelect.innerHTML = optionsHtml;
+    els.sandboxSampleSelect.innerHTML = optionsHtml;
+    els.btnCard1LoadSample.disabled = items.length === 0;
+    els.btnSandboxRun.disabled = items.length === 0;
+  } catch (err) {
+    els.card1SampleSelect.innerHTML = `<option value="">Samples unavailable</option>`;
+    els.sandboxSampleSelect.innerHTML = `<option value="">Samples unavailable</option>`;
+    els.btnCard1LoadSample.disabled = true;
+    els.btnSandboxRun.disabled = true;
+    console.warn("Could not load demo samples:", err);
+  }
+}
+
+function getSandboxDisclosurePreset(presetKey) {
+  if (presetKey === "crash") {
+    return {
+      crash: true,
+      usage: "moderate",
+      exposure_band: "moderate",
+      notes: "Sandbox preset: rider disclosed prior crash involvement (Hard Compliance Gate test).",
+    };
+  }
+  if (presetKey === "contradiction") {
+    return {
+      crash: false,
+      usage: "light",
+      exposure_band: "light",
+      notes: "Sandbox preset: rider claimed garment is almost new, lightly worn 1 season, stored indoors.",
+    };
+  }
+  return {
+    crash: false,
+    usage: "light",
+    exposure_band: "light",
+    notes: "Sandbox preset: clean light-use intake.",
+  };
 }
 
 // ============================================================================
@@ -1216,35 +1876,41 @@ function openLightbox(url, title, subtitle) {
 // ============================================================================
 
 function bindEvents() {
+  // ERP workspace tabs
   els.tabs.forEach((btn) => {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   });
 
-  els.garmentButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      state.selectedGarment = btn.dataset.garment;
-      els.garmentButtons.forEach((b) => {
-        const selected = b.dataset.garment === state.selectedGarment;
-        b.classList.toggle("is-selected", selected);
-        b.setAttribute("aria-pressed", String(selected));
-      });
+  // Stepper click navigation
+  [1, 2, 3].forEach((stepNum) => {
+    els.wizSteps[stepNum].addEventListener("click", () => {
+      if (els.wizSteps[stepNum].disabled) return;
+      if (stepNum === 1) {
+        resetToCategoryCard();
+      } else {
+        setWizardStep(stepNum);
+      }
     });
   });
 
-  els.btnStartSession.addEventListener("click", handleStartSession);
-  els.btnLoadSample.addEventListener("click", handleLoadSample);
+  // Card 1: Category cards & sample drawer
+  els.pickJacketBtn.addEventListener("click", () => startNewCategorySession("jacket"));
+  els.pickPantsBtn.addEventListener("click", () => startNewCategorySession("pants"));
 
-  els.btnCopyUrl.addEventListener("click", async () => {
-    const val = els.captureUrlInput.value;
-    if (!val) return;
-    try {
-      await navigator.clipboard.writeText(val);
-      showToast("Mobile capture link copied to clipboard.", "success", 2500);
-    } catch {
-      els.captureUrlInput.select();
-      document.execCommand("copy");
-      showToast("Mobile capture link copied.", "success", 2500);
-    }
+  els.btnCard1LoadSample.addEventListener("click", () => {
+    loadLocalSampleAndOpen({
+      itemId: els.card1SampleSelect.value,
+      garmentType: els.card1SampleGarment.value,
+      autoScoreAndOpenAudit: true,
+      triggerBtn: els.btnCard1LoadSample,
+    });
+  });
+
+  // Card 2: Back, Copy URL, Disclosure controls, Poll Now, Continue to Audit
+  els.btnBackCategory.addEventListener("click", resetToCategoryCard);
+
+  els.btnCopyUrl.addEventListener("click", () => {
+    copyText(els.captureUrlInput.value, "Mobile capture link copied to clipboard.");
   });
 
   els.counterCrashBtns.forEach((btn) => {
@@ -1258,23 +1924,92 @@ function bindEvents() {
         b.classList.toggle("is-selected-danger", isSelected && val);
         b.setAttribute("aria-pressed", String(isSelected));
       });
+      updateDisclosureSummaryPill();
     });
   });
 
   els.counterUsageSelect.addEventListener("change", () => {
     state.disclosureDirty = true;
+    updateDisclosureSummaryPill();
   });
 
   els.counterNotesInput.addEventListener("input", () => {
     state.disclosureDirty = true;
   });
 
-  els.btnScoreNow.addEventListener("click", () => {
-    if (state.sessionId) {
-      triggerScore(state.sessionId, { useCounterDisclosure: true });
+  els.btnPollNow.addEventListener("click", async () => {
+    if (!state.sessionId) return;
+    els.btnPollNow.disabled = true;
+    await pollSessionStatus();
+    els.btnPollNow.disabled = false;
+  });
+
+  els.btnContinueAudit.addEventListener("click", () => {
+    if (!state.sessionId) return;
+    if (state.lastStatus?.score && !state.disclosureDirty) {
+      setWizardStep(3);
+      renderAuditDossier(state.lastStatus.score);
+    } else {
+      triggerScore(state.sessionId, { useCounterDisclosure: state.disclosureDirty });
     }
   });
 
+  // Card 3: Audit Dossier buttons & Trace copy actions
+  els.btnAuditBackCapture.addEventListener("click", () => {
+    setWizardStep(2);
+    if (state.lastStatus) renderCaptureState(state.lastStatus);
+  });
+
+  els.btnAuditRescore.addEventListener("click", () => {
+    if (state.sessionId) {
+      triggerScore(state.sessionId, { useCounterDisclosure: state.disclosureDirty });
+    }
+  });
+
+  els.btnStartNextIntake.addEventListener("click", resetToCategoryCard);
+
+  els.btnAuditCopyPrompt.addEventListener("click", () => {
+    const t = state.auditTracePayload;
+    if (!t) return showToast("No prompt trace available.", "warn");
+    const combined = `=== SYSTEM PROMPT ===\n${t.system_prompt || ""}\n\n=== USER PROMPT ===\n${t.user_prompt || ""}`;
+    copyText(combined, "Frontier prompts copied to clipboard.");
+  });
+
+  els.btnAuditCopyJson.addEventListener("click", () => {
+    const t = state.auditTracePayload;
+    if (!t) return showToast("No raw JSON response available.", "warn");
+    copyText(prettyJsonText(t.raw_response), "Raw Frontier JSON copied to clipboard.");
+  });
+
+  els.btnAuditApprove.addEventListener("click", async () => {
+    if (!state.sessionId) return;
+    els.btnAuditApprove.disabled = true;
+    try {
+      await submitReviewResolution(state.sessionId, "approved", els.auditStaffNotes.value.trim());
+      els.auditInlineReview.classList.add("hidden");
+      loadReviewQueue({ silent: true });
+    } catch (err) {
+      showToast(`Review update failed: ${err.message}`, "error");
+    } finally {
+      els.btnAuditApprove.disabled = false;
+    }
+  });
+
+  els.btnAuditDecline.addEventListener("click", async () => {
+    if (!state.sessionId) return;
+    els.btnAuditDecline.disabled = true;
+    try {
+      await submitReviewResolution(state.sessionId, "declined_upcycle", els.auditStaffNotes.value.trim());
+      els.auditInlineReview.classList.add("hidden");
+      loadReviewQueue({ silent: true });
+    } catch (err) {
+      showToast(`Review update failed: ${err.message}`, "error");
+    } finally {
+      els.btnAuditDecline.disabled = false;
+    }
+  });
+
+  // Queue & Ledger
   els.queueFilterBtns.forEach((btn) => {
     btn.addEventListener("click", () => {
       state.queueFilter = btn.dataset.queueFilter;
@@ -1284,22 +2019,48 @@ function bindEvents() {
       renderReviewQueue();
     });
   });
-
   els.btnRefreshQueue.addEventListener("click", () => loadReviewQueue());
   els.btnRefreshLog.addEventListener("click", () => loadSessionsLog());
 
-  els.btnCloseLightbox.addEventListener("click", () => {
-    els.lightbox.close();
+  // Admin & Debug
+  els.btnRefreshAdmin.addEventListener("click", () => loadAdminPanel());
+  els.adminSettingsForm.addEventListener("submit", handleSaveSettings);
+
+  els.btnSandboxRun.addEventListener("click", () => {
+    loadLocalSampleAndOpen({
+      itemId: els.sandboxSampleSelect.value,
+      garmentType: els.sandboxGarmentSelect.value,
+      disclosure: getSandboxDisclosurePreset(els.sandboxPresetSelect.value),
+      autoScoreAndOpenAudit: true,
+      triggerBtn: els.btnSandboxRun,
+    });
   });
+
+  els.btnAdminCopyPrompt.addEventListener("click", () => {
+    const t = state.latestTracePayload;
+    if (!t) return showToast("No prompt trace available.", "warn");
+    const combined = `=== SYSTEM PROMPT ===\n${t.system_prompt || ""}\n\n=== USER PROMPT ===\n${t.user_prompt || ""}`;
+    copyText(combined, "Latest Frontier prompts copied to clipboard.");
+  });
+
+  els.btnAdminCopyJson.addEventListener("click", () => {
+    const t = state.latestTracePayload;
+    if (!t) return showToast("No raw JSON response available.", "warn");
+    copyText(prettyJsonText(t.raw_response), "Latest raw Frontier JSON copied to clipboard.");
+  });
+
+  // Lightbox
+  els.btnCloseLightbox.addEventListener("click", () => els.lightbox.close());
   els.lightbox.addEventListener("click", (evt) => {
-    if (evt.target === els.lightbox) {
-      els.lightbox.close();
-    }
+    if (evt.target === els.lightbox) els.lightbox.close();
   });
 }
 
 function init() {
+  initAngleDeck();
   bindEvents();
+  setWizardStep(1);
+  loadRuntimeSettings({ silent: true });
   loadDemoSamplesList();
   loadReviewQueue({ silent: true });
   loadSessionsLog({ silent: true });

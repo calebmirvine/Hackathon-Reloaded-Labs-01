@@ -148,12 +148,20 @@ def compute_score(
     photos: list[dict[str, Any]],
     garment_type: str,
     disclosure: dict[str, Any] | None = None,
+    *,
+    auto_approve_min: int = 85,
+    human_review_min: int = 50,
 ) -> dict[str, Any]:
     """Compute the deterministic 0–100 Photo Coverage + Damage Disclosure score and intake routing."""
     disclosure = dict(disclosure or {})
     normalized_garment = (garment_type or "jacket").strip().lower()
     if normalized_garment not in {"jacket", "pants"}:
         normalized_garment = "jacket"
+
+    hr_min = max(1, min(99, int(human_review_min)))
+    aa_min = max(hr_min + 1, min(100, int(auto_approve_min)))
+    reject_max = hr_min - 1
+    review_max = aa_min - 1
 
     # 1. Inspect captured required angles & Stage 1 OpenCLIP match flags
     photo_by_angle: dict[str, dict[str, Any]] = {}
@@ -321,18 +329,19 @@ def compute_score(
     raw_total = photo_coverage_score + damage_disclosure_score
 
     if hard_gate_triggered:
+        # Hard Compliance Gate is permanently locked <= 49 regardless of admin threshold settings
         total_score = min(raw_total, 39)
     else:
         total_score = max(0, min(100, raw_total))
-        # Missing or mismatched required angles cannot auto-approve (85–100)
-        if (missing_angles or mismatched_angles) and total_score >= 85:
+        # Missing or mismatched required angles cannot auto-approve
+        if (missing_angles or mismatched_angles) and total_score >= aa_min:
             # Trim excess cleanly from damage_disclosure_score so breakdown remains consistent
-            excess = total_score - 84
+            excess = total_score - review_max
             damage_disclosure_score = max(0, damage_disclosure_score - excess)
             total_score = photo_coverage_score + damage_disclosure_score
-        # Extensive multi-area major defects (3+ major damage failures) route to 0–49 upcycle
+        # Extensive multi-area major defects (3+ major damage failures) route to rejected/upcycle band
         elif major_damage_failures >= 3 and damage_disclosure_score == 0:
-            total_score = min(total_score, 45)
+            total_score = min(total_score, min(45, reject_max))
 
     # 7. Extract & enrich labels (explicitly preserving NA CE-label neutrality)
     raw_labels = (
@@ -363,15 +372,15 @@ def compute_score(
         decision_label = "Declined for Buy-In — Route to Upcycling (0–49)"
         buy_in_recommended = False
         upcycle_plan = _build_upcycle_plan(material_group, normalized_garment, hard_gate_reasons)
-    elif total_score <= 49:
+    elif total_score < hr_min:
         needs_retake = bool(missing_angles or mismatched_angles or (retake_angles and photo_coverage_score < 35))
         if needs_retake:
             decision = "rejected_retake"
-            decision_label = "Rejected / Retake Required (0–49)"
+            decision_label = f"Rejected / Retake Required (0–{reject_max})"
             buy_in_recommended = False
         else:
             decision = "rejected_upcycle"
-            decision_label = "Declined for Buy-In — Route to Upcycling (0–49)"
+            decision_label = f"Declined for Buy-In — Route to Upcycling (0–{reject_max})"
             buy_in_recommended = False
             failed_reasons = [
                 f"{c['label']}: {c['reason']}" if c["reason"] else c["label"]
@@ -379,13 +388,13 @@ def compute_score(
                 if not c["passed"]
             ]
             upcycle_plan = _build_upcycle_plan(material_group, normalized_garment, failed_reasons)
-    elif total_score <= 84:
+    elif total_score < aa_min:
         decision = "human_review"
-        decision_label = "Human Review Required (50–84)"
+        decision_label = f"Human Review Required ({hr_min}–{review_max})"
         buy_in_recommended = False
     else:
         decision = "auto_approved"
-        decision_label = "Auto-Approved & Logged (85–100)"
+        decision_label = f"Auto-Approved & Logged ({aa_min}–100)"
         buy_in_recommended = True
 
     protection_disclosure_status = _compute_protection_disclosure_status(
@@ -419,7 +428,7 @@ def compute_score(
         extra = f" {vision_summary}" if vision_summary else ""
         summary = (
             f"Photo coverage + damage disclosure score is {total_score}/100. "
-            f"Queued for Alex/Barbara in-hand physical inspection.{extra}"
+            f"Queued for store staff in-hand physical inspection.{extra}"
         )
     else:
         extra = f" {vision_summary}" if vision_summary else ""
@@ -427,6 +436,8 @@ def compute_score(
             f"Photo coverage + damage disclosure score is {total_score}/100. "
             f"Logged as intake-ready pending standard in-hand physical confirmation.{extra}"
         )
+
+    agent_trace = vision_result.get("agent_trace") if isinstance(vision_result, dict) else None
 
     return {
         "garment_type": normalized_garment,
@@ -453,6 +464,7 @@ def compute_score(
         "contradiction_reason": contradiction_reason,
         "protection_disclosure_status": protection_disclosure_status,
         "upcycle_plan": upcycle_plan,
+        "agent_trace": agent_trace,
         "summary": summary,
         "disclaimer": DISCLAIMER,
     }

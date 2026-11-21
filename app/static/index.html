@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Moto Reloaded — Gear Intake Checker (Counter)</title>
+  <title>Moto Reloaded · Intake ERP</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
@@ -18,19 +18,19 @@
     <div class="header-inner">
       <div class="brand-lockup">
         <div class="brand-mark" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 17V7l5 6 5-6v10" />
             <path d="M18 17V7h2.5a2.5 2.5 0 0 1 0 5H18" />
             <path d="M19.5 12 22 17" />
           </svg>
         </div>
         <div>
-          <div class="brand-title">Moto Reloaded</div>
-          <div class="brand-subtitle">Gear Intake Checker · Photo Coverage &amp; Damage Disclosure</div>
+          <div class="brand-title">Moto Reloaded · Intake ERP</div>
+          <div class="brand-subtitle">Photo Coverage &amp; Damage Disclosure Workflow</div>
         </div>
       </div>
 
-      <nav class="header-nav" aria-label="Counter sections" role="tablist">
+      <nav class="header-nav" aria-label="ERP Workspaces" role="tablist">
         <button
           id="tab-intake"
           class="nav-tab is-active"
@@ -40,7 +40,7 @@
           aria-controls="panel-intake"
           data-tab="intake"
         >
-          Live Intake
+          New Intake
         </button>
         <button
           id="tab-queue"
@@ -51,7 +51,7 @@
           aria-controls="panel-queue"
           data-tab="queue"
         >
-          Review Queue (50–84)
+          Review Queue
           <span id="queue-badge" class="nav-badge">0</span>
         </button>
         <button
@@ -63,12 +63,23 @@
           aria-controls="panel-log"
           data-tab="log"
         >
-          Intake Log
+          Intake Ledger
           <span id="log-badge" class="nav-badge">0</span>
+        </button>
+        <button
+          id="tab-admin"
+          class="nav-tab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="panel-admin"
+          data-tab="admin"
+        >
+          Admin &amp; Debug
         </button>
       </nav>
 
-      <span class="header-pill">Disclosure-Only Store Triage</span>
+      <span id="header-model-pill" class="header-pill">gpt-4.1 · Inference-Only</span>
     </div>
   </header>
 
@@ -77,238 +88,305 @@
     <div id="global-toast" class="toast-banner hidden" role="status" aria-live="polite"></div>
 
     <!-- =====================================================================
-         TAB 1: LIVE INTAKE
+         WORKSPACE 1: NEW INTAKE — 3-STEP TINDER-STYLE FOCAL CARD DECK
          ===================================================================== -->
-    <section id="panel-intake" role="tabpanel" aria-labelledby="tab-intake" class="stack">
-      <!-- Start Session + Demo Backup Bar -->
-      <div class="surface-card session-bar" aria-label="Session controls">
-        <div class="session-bar-group">
-          <div>
-            <span class="field-label">Garment Category</span>
-            <div class="segmented" role="group" aria-label="Select garment type">
-              <button
-                type="button"
-                class="segmented-btn is-selected"
-                data-garment="jacket"
-                aria-pressed="true"
-              >
-                Jacket
-              </button>
-              <button
-                type="button"
-                class="segmented-btn"
-                data-garment="pants"
-                aria-pressed="false"
-              >
-                Pants
-              </button>
-            </div>
+    <section id="panel-intake" role="tabpanel" aria-labelledby="tab-intake" class="wizard-shell">
+      <!-- 3-Step Card-Deck Progress Bar -->
+      <nav class="wizard-stepper" aria-label="Intake steps">
+        <button
+          id="wiz-step-1"
+          type="button"
+          class="wizard-step-btn is-active"
+          data-wizard-step="1"
+          aria-current="step"
+        >
+          <span class="wizard-step-num">1</span>
+          <span>Category</span>
+        </button>
+        <span class="wizard-sep" aria-hidden="true">→</span>
+        <button
+          id="wiz-step-2"
+          type="button"
+          class="wizard-step-btn"
+          data-wizard-step="2"
+          disabled
+        >
+          <span class="wizard-step-num">2</span>
+          <span>Photo Capture</span>
+        </button>
+        <span class="wizard-sep" aria-hidden="true">→</span>
+        <button
+          id="wiz-step-3"
+          type="button"
+          class="wizard-step-btn"
+          data-wizard-step="3"
+          disabled
+        >
+          <span class="wizard-step-num">3</span>
+          <span>Verification &amp; Audit</span>
+        </button>
+      </nav>
+
+      <div class="deck-stage">
+        <!-- ===============================================================
+             CARD 1: SELECT CATEGORY
+             =============================================================== -->
+        <article id="card-step-1" class="deck-card deck-card-sm stack" aria-label="Step 1: Select Garment Category">
+          <div style="text-align: center;">
+            <div class="section-kicker">Step 1 of 3 · New Intake Record</div>
+            <h1 class="section-title" style="font-size: 1.55rem;">Select Garment Category</h1>
+            <p class="section-subtitle">
+              Choose the garment type to generate a mobile QR capture link and apply the matching Zone-1 rubric.
+            </p>
           </div>
 
-          <button id="btn-start-session" type="button" class="btn btn-primary">
-            Start Intake Session
-          </button>
-        </div>
-
-        <div class="bar-divider" aria-hidden="true"></div>
-
-        <div class="demo-cluster" aria-label="Local sample demo loader">
-          <span class="demo-label">Demo Backup</span>
-          <label for="sample-select" class="sr-only">Choose local sample item</label>
-          <select id="sample-select" class="select">
-            <option value="">Loading local samples…</option>
-          </select>
-          <button id="btn-load-sample" type="button" class="btn btn-secondary btn-sm">
-            Load Local Sample
-          </button>
-        </div>
-      </div>
-
-      <!-- Empty Welcome State before first session -->
-      <div id="intake-empty" class="surface-card empty-state">
-        <span class="pill pill-black">Store Counter Workflow</span>
-        <h3>Start an intake session to generate a mobile capture QR code</h3>
-        <p style="max-width: 62ch;">
-          Choose <strong>Jacket</strong> or <strong>Pants</strong>, click <strong>Start Intake Session</strong>,
-          and let the rider capture all 6 required angles on their phone. This counter screen polls
-          live every 2 seconds and computes the 0–100 <strong>Photo Coverage + Damage Disclosure</strong> score.
-        </p>
-        <p style="font-size: 0.84rem;">
-          Presenting without a phone? Pick any local folder in <strong>Demo Backup</strong> above.
-        </p>
-      </div>
-
-      <!-- Active Session Two-Column Workspace -->
-      <div id="intake-workspace" class="workspace-grid hidden">
-        <!-- LEFT COLUMN: QR Handoff + 6 Guided Angles + Counter Disclosure -->
-        <section class="surface-card stack" aria-label="Live photo capture progress">
-          <div class="row-between">
-            <div>
-              <div class="section-kicker">Active Counter Session</div>
-              <div class="row-wrap" style="margin-top: 0.2rem;">
-                <h1 id="session-heading" class="section-title mono">Session —</h1>
-                <span id="session-garment-pill" class="pill pill-neutral">Jacket</span>
-                <span id="session-status-pill" class="pill pill-black">Created</span>
+          <div class="category-grid">
+            <button
+              id="btn-pick-jacket"
+              type="button"
+              class="category-choice"
+              data-pick-garment="jacket"
+            >
+              <div class="category-icon-box" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 4 4 7l-1 6 3 1 1-4v10h10V10l1 4 3-1-1-6-4-3" />
+                  <path d="M9 4a3 3 0 0 0 6 0" />
+                  <path d="M12 7v13" />
+                </svg>
               </div>
-            </div>
-            <div id="polling-indicator" class="pill pill-neutral hidden" aria-live="polite">
-              <span class="live-dot" aria-hidden="true"></span>
-              <span>Live poll · 2s</span>
-            </div>
-          </div>
-
-          <!-- Mobile QR Handoff Card -->
-          <div id="qr-handoff-card" class="qr-handoff hidden">
-            <div class="qr-frame">
-              <img id="qr-image" src="" alt="QR code to open mobile guided photo capture" />
-              <span class="qr-caption">Scan on Phone</span>
-            </div>
-            <div class="stack" style="gap: 0.55rem;">
-              <h2 style="font-size: 1.05rem;">Open Guided Mobile Capture</h2>
-              <p style="font-size: 0.88rem; color: var(--fg-secondary);">
-                Scan this QR code with a phone camera (HTTPS tunnel required for mobile camera access).
-                Each angle appears below automatically as soon as it is verified by OpenCLIP.
-              </p>
-              <div class="url-copy-row">
-                <label for="capture-url-input" class="sr-only">Mobile capture URL</label>
-                <input
-                  id="capture-url-input"
-                  class="input url-input"
-                  type="text"
-                  readonly
-                  value=""
-                />
-                <button id="btn-copy-url" type="button" class="btn btn-secondary btn-sm">
-                  Copy Link
-                </button>
-                <a
-                  id="link-open-capture"
-                  href="#"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="btn btn-ghost btn-sm"
-                >
-                  Open Capture
-                </a>
-              </div>
-            </div>
-          </div>
-
-          <!-- Progress Counter + 6 Guided Angle Cards -->
-          <div class="stack" style="gap: 0.65rem;">
-            <div class="row-between">
-              <h2 style="font-size: 1rem;">Guided Angle Coverage (6 Required)</h2>
-              <span id="angle-count-pill" class="pill pill-black tabular">0 / 6 captured</span>
-            </div>
-            <div id="angle-grid" class="angle-grid" aria-live="polite"></div>
-          </div>
-
-          <!-- Optional Defect Close-Ups Strip -->
-          <div id="defect-section" class="stack hidden" style="gap: 0.55rem;">
-            <div class="row-between">
-              <h3 style="font-size: 0.94rem;">Additional Defect Close-Ups (Coin for Scale)</h3>
-              <span id="defect-count-pill" class="pill pill-review tabular">0 shots</span>
-            </div>
-            <div id="defect-strip" class="defect-strip"></div>
-          </div>
-
-          <!-- Rider Disclosure & Counter Trigger Controls -->
-          <div class="disclosure-box">
-            <div class="row-between">
               <div>
-                <h3 style="font-size: 0.95rem;">Rider Disclosure &amp; Scoring Controls</h3>
-                <p style="font-size: 0.8rem; color: var(--fg-muted);">
-                  Synced from mobile submission, or editable at the counter before scoring / re-scoring.
+                <div class="category-choice-title">Motorcycle Jacket</div>
+                <p class="category-choice-zones">
+                  Zone 1 areas: Left &amp; right shoulders, left &amp; right elbows/forearms, and upper back.
                 </p>
               </div>
-              <button id="btn-score-now" type="button" class="btn btn-primary btn-sm" disabled>
-                Score Now
+              <span class="category-choice-cta">Start Jacket Intake →</span>
+            </button>
+
+            <button
+              id="btn-pick-pants"
+              type="button"
+              class="category-choice"
+              data-pick-garment="pants"
+            >
+              <div class="category-icon-box" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 3h12l1 18h-4.5L12 10.5 9.5 21H5L6 3Z" />
+                  <path d="M6 7h12" />
+                </svg>
+              </div>
+              <div>
+                <div class="category-choice-title">Motorcycle Pants</div>
+                <p class="category-choice-zones">
+                  Zone 1 areas: Left &amp; right hips/outer thighs, left &amp; right knees, and seat area.
+                </p>
+              </div>
+              <span class="category-choice-cta">Start Pants Intake →</span>
+            </button>
+          </div>
+
+          <!-- Subtle secondary drawer for local demo samples -->
+          <details class="subtle-drawer" id="card1-sample-drawer">
+            <summary>
+              <span>Or load a local sample item (offline demo backup)</span>
+              <span class="pill pill-neutral">RL01 Dataset</span>
+            </summary>
+            <div class="subtle-drawer-body">
+              <div class="row-wrap" style="justify-content: space-between;">
+                <div class="row-wrap" style="flex: 1;">
+                  <label for="card1-sample-select" class="sr-only">Sample folder</label>
+                  <select id="card1-sample-select" class="select" style="flex: 1; min-width: 145px;">
+                    <option value="">Loading samples…</option>
+                  </select>
+                  <label for="card1-sample-garment" class="sr-only">Sample garment type</label>
+                  <select id="card1-sample-garment" class="select">
+                    <option value="jacket">Jacket</option>
+                    <option value="pants">Pants</option>
+                  </select>
+                </div>
+                <button id="btn-card1-load-sample" type="button" class="btn btn-secondary btn-sm">
+                  Load Sample →
+                </button>
+              </div>
+              <p class="field-help">
+                Copies local sample frames into a fresh session and verifies all angles via frozen OpenCLIP inference.
+              </p>
+            </div>
+          </details>
+        </article>
+
+        <!-- ===============================================================
+             CARD 2: GUIDED PHOTO CAPTURE (FLICKER-FREE)
+             =============================================================== -->
+        <article id="card-step-2" class="deck-card deck-card-md stack hidden" aria-label="Step 2: Guided Photo Capture">
+          <!-- Header Strip -->
+          <div class="row-between">
+            <div class="row-wrap">
+              <button id="btn-back-category" type="button" class="btn btn-ghost btn-sm">
+                ← Change Category
               </button>
+              <div>
+                <div class="section-kicker" style="margin-bottom: 0.1rem;">Step 2 of 3 · Guided Capture</div>
+                <div class="row-wrap" style="gap: 0.45rem;">
+                  <h2 id="capture-session-title" class="section-title mono" style="font-size: 1.15rem;">Session —</h2>
+                  <span id="capture-garment-pill" class="pill pill-neutral">Jacket</span>
+                  <span id="capture-status-pill" class="pill pill-black">Waiting for Phone</span>
+                </div>
+              </div>
             </div>
 
-            <div class="disclosure-grid">
-              <div>
-                <span class="field-label">Crash History Disclosed</span>
-                <div class="segmented" role="group" aria-label="Crash history disclosed">
-                  <button
-                    type="button"
-                    class="segmented-btn is-selected"
-                    data-counter-crash="false"
-                    aria-pressed="true"
-                  >
-                    No
+            <div class="row-wrap">
+              <span id="polling-indicator" class="pill pill-neutral hidden" aria-live="polite">
+                <span class="live-dot" aria-hidden="true"></span>
+                <span id="polling-label">Live · 2.0s</span>
+              </span>
+              <span id="angle-count-pill" class="pill pill-black tabular">0 / 6 captured</span>
+            </div>
+          </div>
+
+          <!-- Compact QR Handoff Rail + Flicker-Free 6-Angle Grid -->
+          <div class="capture-deck-layout">
+            <aside id="qr-rail" class="qr-rail" aria-label="Mobile capture QR handoff">
+              <div id="qr-frame-box" class="qr-frame">
+                <img id="qr-image" src="" alt="QR code for mobile guided photo capture" />
+                <span class="qr-caption">Scan on Phone</span>
+              </div>
+              <div class="stack" style="gap: 0.48rem; width: 100%;">
+                <p style="font-size: 0.8rem; color: var(--fg-secondary);">
+                  Capture the 6 required angles over HTTPS. Verified thumbnails appear live without reloading.
+                </p>
+                <label for="capture-url-input" class="sr-only">Mobile capture URL</label>
+                <input id="capture-url-input" class="input url-input" type="text" readonly value="" />
+                <div class="row-wrap" style="justify-content: center;">
+                  <button id="btn-copy-url" type="button" class="btn btn-secondary btn-sm" style="flex: 1;">
+                    Copy Link
                   </button>
-                  <button
-                    type="button"
-                    class="segmented-btn"
-                    data-counter-crash="true"
-                    aria-pressed="false"
+                  <a
+                    id="link-open-capture"
+                    href="#"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn btn-ghost btn-sm"
+                    style="flex: 1;"
                   >
-                    Yes (Hard Gate)
-                  </button>
+                    Open Mobile
+                  </a>
+                </div>
+              </div>
+            </aside>
+
+            <div class="stack" style="gap: 0.9rem;">
+              <!-- 6 Angle Nodes initialized ONCE by JS (never rebuilt via innerHTML on poll!) -->
+              <div id="angle-grid" class="angle-grid" aria-live="polite"></div>
+
+              <!-- Optional Defect Close-Ups Strip -->
+              <div id="defect-section" class="stack hidden" style="gap: 0.45rem;">
+                <div class="row-between">
+                  <h3 style="font-size: 0.9rem;">Additional Defect Close-Ups (Coin for Scale)</h3>
+                  <span id="defect-count-pill" class="pill pill-review tabular">0 shots</span>
+                </div>
+                <div id="defect-strip" class="defect-strip"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Collapsible Rider Disclosure Drawer -->
+          <details class="subtle-drawer" id="capture-disclosure-drawer">
+            <summary>
+              <span>Rider Disclosure &amp; Counter Notes (optional override)</span>
+              <span id="disclosure-summary-pill" class="pill pill-neutral">No Crash · Moderate</span>
+            </summary>
+            <div class="subtle-drawer-body">
+              <div class="disclosure-grid">
+                <div>
+                  <span class="field-label">Crash History Disclosed</span>
+                  <div class="segmented" role="group" aria-label="Crash history disclosed">
+                    <button
+                      type="button"
+                      class="segmented-btn is-selected"
+                      data-counter-crash="false"
+                      aria-pressed="true"
+                    >
+                      No
+                    </button>
+                    <button
+                      type="button"
+                      class="segmented-btn"
+                      data-counter-crash="true"
+                      aria-pressed="false"
+                    >
+                      Yes (Hard Gate)
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label for="counter-usage-select" class="field-label">Usage / Exposure</label>
+                  <select id="counter-usage-select" class="select" style="width: 100%;">
+                    <option value="light">Light</option>
+                    <option value="moderate" selected>Moderate</option>
+                    <option value="heavy">Heavy</option>
+                  </select>
                 </div>
               </div>
 
               <div>
-                <label for="counter-usage-select" class="field-label">Usage / Exposure</label>
-                <select id="counter-usage-select" class="select" style="width: 100%;">
-                  <option value="light">Light</option>
-                  <option value="moderate" selected>Moderate</option>
-                  <option value="heavy">Heavy</option>
-                </select>
+                <label for="counter-notes-input" class="field-label">Disclosure / Counter Notes</label>
+                <textarea
+                  id="counter-notes-input"
+                  class="textarea"
+                  rows="2"
+                  placeholder="Optional notes: approximate age, washing history, visible marks, missing thermal liner…"
+                ></textarea>
               </div>
             </div>
+          </details>
 
-            <div>
-              <label for="counter-notes-input" class="field-label">Rider / Clerk Disclosure Notes</label>
-              <textarea
-                id="counter-notes-input"
-                class="textarea"
-                rows="2"
-                placeholder="Optional notes: age, washing history, visible marks, missing thermal liner…"
-              ></textarea>
+          <!-- Bottom Capture Action Bar -->
+          <div class="deck-footer-bar">
+            <div class="row-wrap">
+              <button id="btn-poll-now" type="button" class="btn btn-secondary btn-sm">
+                Poll Now
+              </button>
+              <span id="capture-ready-hint" style="font-size: 0.82rem; color: var(--fg-muted);">
+                Waiting for mobile uploads…
+              </span>
             </div>
+            <button id="btn-continue-audit" type="button" class="btn btn-primary" disabled>
+              Continue to Audit →
+            </button>
           </div>
-        </section>
+        </article>
 
-        <!-- RIGHT COLUMN: Score Report, Extracted Labels, Upcycling & Checklist -->
-        <section class="surface-card stack" aria-label="Photo coverage and damage disclosure score">
+        <!-- ===============================================================
+             CARD 3: VERIFICATION & AUDIT DOSSIER
+             =============================================================== -->
+        <article id="card-step-3" class="deck-card deck-card-lg stack hidden" aria-label="Step 3: Verification and Audit Dossier">
+          <!-- Audit Header -->
           <div class="row-between">
             <div>
-              <div class="section-kicker">Intake Assessment Output</div>
-              <h2 class="section-title">Photo Coverage + Damage Disclosure</h2>
+              <div class="section-kicker">Step 3 of 3 · Verification &amp; Audit Dossier</div>
+              <div class="row-wrap" style="margin-top: 0.15rem;">
+                <h2 id="audit-session-title" class="section-title mono">Session —</h2>
+                <span id="audit-garment-pill" class="pill pill-neutral">Jacket</span>
+                <span id="audit-brand-pill" class="pill pill-black hidden">Brand</span>
+              </div>
             </div>
-            <a
-              id="btn-export-xlsx"
-              href="#"
-              download
-              class="btn btn-secondary btn-sm hidden"
-            >
-              Download Alex's Shot Checklist (.xlsx)
+            <a id="btn-export-xlsx" href="#" download class="btn btn-secondary btn-sm">
+              Export Shot Checklist (.xlsx)
             </a>
-          </div>
-
-          <!-- Waiting for Score State -->
-          <div id="score-waiting" class="empty-state">
-            <span class="pill pill-neutral">Awaiting Capture Completion</span>
-            <h3>Score calculates automatically when mobile capture finishes</h3>
-            <p style="max-width: 46ch; font-size: 0.88rem;">
-              Once the rider taps <strong>Finish &amp; Send to Counter</strong>, this panel runs the
-              rubric check and outputs a 0–100 <strong>Photo Coverage + Damage Disclosure</strong>
-              score (or click <strong>Score Now</strong> anytime after uploading photos).
-            </p>
           </div>
 
           <!-- Scoring Spinner State -->
           <div id="score-loading" class="empty-state hidden" role="status" aria-live="polite">
             <span class="spinner" aria-hidden="true"></span>
             <h3>Evaluating photo coverage &amp; damage disclosure…</h3>
-            <p style="font-size: 0.86rem;">
-              Running Moto Reloaded's rubric check and deterministic 0–100 scoring rules.
+            <p id="score-loading-detail" style="font-size: 0.88rem;">
+              Running vision rubric inspection and deterministic 0–100 scoring rules.
             </p>
           </div>
 
-          <!-- Full Score Report Container -->
+          <!-- Full Scored Dossier -->
           <div id="score-report" class="stack hidden" aria-live="polite">
             <!-- Decision Banner -->
             <div id="decision-banner" class="decision-banner">
@@ -320,9 +398,9 @@
               <p id="decision-summary" class="decision-sub">—</p>
             </div>
 
-            <!-- 0-100 Gauge + Breakdown -->
+            <!-- 0-100 SVG Radial Gauge + Breakdown Bars -->
             <div class="score-hero">
-              <div class="gauge-wrap" role="img" id="gauge-a11y" aria-label="Score 0 out of 100">
+              <div class="gauge-wrap" role="img" id="gauge-a11y" aria-label="Photo Coverage plus Damage Disclosure Score">
                 <svg class="gauge-svg" viewBox="0 0 120 120" aria-hidden="true">
                   <circle class="gauge-track" cx="60" cy="60" r="50" />
                   <circle
@@ -342,6 +420,11 @@
               </div>
 
               <div class="score-bars">
+                <div class="row-between">
+                  <strong style="font-size: 0.94rem;">Photo Coverage + Damage Disclosure Score</strong>
+                  <span id="protection-disclosure-pill" class="pill pill-neutral">Unknown</span>
+                </div>
+
                 <div class="score-bar-row">
                   <div class="score-bar-head">
                     <span>Photo Coverage</span>
@@ -362,56 +445,51 @@
                   </div>
                 </div>
 
-                <div class="row-between" style="padding-top: 0.25rem;">
-                  <span style="font-size: 0.78rem; color: var(--fg-muted);">
-                    Documentation Status (Not a performance test)
-                  </span>
-                  <span id="protection-disclosure-pill" class="pill pill-neutral">Unknown</span>
-                </div>
+                <p class="field-help" style="margin-top: 0;">
+                  Documentation status reflects labels &amp; rider history only — never a performance test.
+                </p>
               </div>
             </div>
 
-            <!-- Hard Gate Reasons Alert -->
+            <!-- Conditional Alerts -->
             <div id="hard-gate-box" class="alert-box is-danger hidden">
-              <div class="alert-title">Hard Compliance Gate Triggered — Do Not Recommend Buy-In</div>
+              <div class="alert-title">Hard Compliance Gate Triggered — Declined for Buy-In</div>
               <ul id="hard-gate-list" class="alert-list"></ul>
             </div>
 
-            <!-- Contradiction Alert Banner -->
             <div id="contradiction-box" class="alert-box is-warn hidden">
               <div class="alert-title">Disclosure vs. Photo Contradiction Flagged</div>
               <p id="contradiction-reason" style="font-size: 0.88rem; color: var(--fg-secondary);"></p>
             </div>
 
-            <!-- Retake Angles Banner -->
             <div id="retake-box" class="alert-box is-warn hidden">
               <div class="alert-title">Photo Retake Required Before Intake</div>
               <p id="retake-angles-text" style="font-size: 0.88rem; color: var(--fg-secondary);"></p>
             </div>
 
-            <!-- Upcycling & Responsible Retirement Card (0-49 declined) -->
+            <!-- Circular Upcycling & Responsible Retirement Card (0-49 declined) -->
             <div id="upcycle-card" class="upcycle-card hidden">
               <div class="row-between">
-                <span class="pill pill-reject">Circular Upcycling &amp; Retirement</span>
+                <span class="pill pill-reject">Circular Upcycling &amp; Responsible Retirement</span>
                 <span id="upcycle-material-pill" class="pill pill-black">Material</span>
               </div>
-              <h3 id="upcycle-headline" style="font-size: 1.05rem;">—</h3>
+              <h3 id="upcycle-headline" style="font-size: 1.06rem;">—</h3>
               <p id="upcycle-summary" style="font-size: 0.88rem; color: var(--fg-secondary);"></p>
               <ul id="upcycle-pathways" class="upcycle-list"></ul>
               <div id="upcycle-tradein" class="trade-in-box"></div>
               <p id="upcycle-clerk-step" style="font-size: 0.82rem; color: var(--accent-cream);"></p>
             </div>
 
-            <!-- Extracted Labels Strip -->
-            <div class="stack" style="gap: 0.55rem;">
-              <h3 style="font-size: 0.96rem;">Extracted Garment Labels</h3>
+            <!-- Extracted Garment Labels -->
+            <div class="stack" style="gap: 0.5rem;">
+              <h3 style="font-size: 0.95rem;">Extracted Garment Labels</h3>
               <div id="labels-grid" class="labels-grid"></div>
             </div>
 
             <!-- Pass / Fail Checklist Table -->
-            <div class="stack" style="gap: 0.55rem;">
+            <div class="stack" style="gap: 0.5rem;">
               <div class="row-between">
-                <h3 style="font-size: 0.96rem;">Photo Coverage &amp; Damage Disclosure Checklist</h3>
+                <h3 style="font-size: 0.95rem;">Photo Coverage &amp; Damage Disclosure Checklist</h3>
                 <span id="checklist-summary-pill" class="pill pill-black tabular">0 / 0 passed</span>
               </div>
               <div class="table-wrap">
@@ -429,8 +507,81 @@
               </div>
             </div>
 
+            <!-- Frontier Agent Output & Prompt Trace Card (Right on Card 3!) -->
+            <section id="audit-trace-card" class="trace-card" aria-label="Frontier Agent Output and Prompt Trace">
+              <div class="row-between">
+                <div>
+                  <div class="section-kicker" style="margin-bottom: 0.12rem;">Frontier Agent Output &amp; Prompt Trace</div>
+                  <h3 id="audit-trace-heading" style="font-size: 1rem;">Vision Rubric Agent</h3>
+                </div>
+                <span id="audit-trace-provider-pill" class="pill pill-black">Azure OpenAI</span>
+              </div>
+
+              <div id="audit-trace-stats" class="trace-meta-grid"></div>
+
+              <details id="audit-trace-details" class="subtle-drawer" style="border-top: none; padding-top: 0;">
+                <summary>
+                  <span>Inspect System Prompt, User Prompt &amp; Raw Frontier JSON Response</span>
+                  <span class="pill pill-neutral">Expand Trace</span>
+                </summary>
+                <div class="subtle-drawer-body">
+                  <div class="row-wrap">
+                    <button id="btn-audit-copy-prompt" type="button" class="btn btn-secondary btn-sm">
+                      Copy Prompt
+                    </button>
+                    <button id="btn-audit-copy-json" type="button" class="btn btn-secondary btn-sm">
+                      Copy Raw JSON
+                    </button>
+                  </div>
+
+                  <div class="code-block-group">
+                    <span class="field-label" style="margin-bottom: 0;">System Prompt</span>
+                    <pre class="code-pre"><code id="audit-trace-system">No system prompt recorded.</code></pre>
+                  </div>
+
+                  <div class="code-block-group">
+                    <span class="field-label" style="margin-bottom: 0;">User Prompt Sent</span>
+                    <pre class="code-pre"><code id="audit-trace-user">No user prompt recorded.</code></pre>
+                  </div>
+
+                  <div class="code-block-group">
+                    <span class="field-label" style="margin-bottom: 0;">Raw Frontier JSON Response</span>
+                    <pre class="code-pre"><code id="audit-trace-raw">{}</code></pre>
+                  </div>
+                </div>
+              </details>
+            </section>
+
+            <!-- Inline Staff Review Strip (shown when session is in human_review band) -->
+            <div id="audit-inline-review" class="elevated-card stack hidden" style="gap: 0.65rem;">
+              <div class="row-between">
+                <div>
+                  <h3 style="font-size: 0.94rem;">In-Hand Staff Review Decision</h3>
+                  <p style="font-size: 0.8rem; color: var(--fg-muted);">
+                    Record physical inspection notes and resolve this queued review directly from the Audit Dossier.
+                  </p>
+                </div>
+                <span class="pill pill-review">Pending Staff Review</span>
+              </div>
+              <label for="audit-staff-notes" class="sr-only">Staff inspection notes</label>
+              <textarea
+                id="audit-staff-notes"
+                class="textarea"
+                rows="2"
+                placeholder="Optional physical inspection findings (seams, zippers, lining, odor)…"
+              ></textarea>
+              <div class="row-wrap">
+                <button id="btn-audit-approve" type="button" class="btn btn-approve btn-sm">
+                  Approve In-Hand
+                </button>
+                <button id="btn-audit-decline" type="button" class="btn btn-danger btn-sm">
+                  Decline → Upcycle
+                </button>
+              </div>
+            </div>
+
             <!-- Result Disclaimer -->
-            <div class="elevated-card" style="font-size: 0.82rem; color: var(--fg-muted);">
+            <div class="elevated-card" style="font-size: 0.81rem; color: var(--fg-muted);">
               <strong style="color: var(--accent-cream);">Disclosure Notice:</strong>
               <span id="score-disclaimer">
                 Photo coverage and damage disclosure check only. Moto Reloaded and this tool do not
@@ -438,21 +589,36 @@
               </span>
             </div>
           </div>
-        </section>
+
+          <!-- Bottom ERP Action Bar -->
+          <div class="deck-footer-bar">
+            <div class="row-wrap">
+              <button id="btn-audit-back-capture" type="button" class="btn btn-ghost btn-sm">
+                ← Back to Capture
+              </button>
+              <button id="btn-audit-rescore" type="button" class="btn btn-secondary btn-sm">
+                Re-Score
+              </button>
+            </div>
+            <button id="btn-start-next-intake" type="button" class="btn btn-primary">
+              Start Next Intake →
+            </button>
+          </div>
+        </article>
       </div>
     </section>
 
     <!-- =====================================================================
-         TAB 2: REVIEW QUEUE (50-84)
+         WORKSPACE 2: REVIEW QUEUE (50–84 BAND)
          ===================================================================== -->
     <section id="panel-queue" role="tabpanel" aria-labelledby="tab-queue" class="stack hidden">
       <div class="surface-card stack">
         <div class="section-head">
           <div>
             <div class="section-kicker">In-Hand Store Inspection</div>
-            <h2 class="section-title">Human Review Queue (50–84 Band)</h2>
+            <h2 class="section-title">Staff Review Queue</h2>
             <p class="section-subtitle">
-              Items scored 50–84 require physical in-hand inspection by Alex or Barbara before
+              Items routed to human review require physical in-hand inspection by store staff before
               approving buy-in or routing to circular upcycling.
             </p>
           </div>
@@ -474,21 +640,21 @@
     </section>
 
     <!-- =====================================================================
-         TAB 3: INTAKE LOG
+         WORKSPACE 3: INTAKE LEDGER
          ===================================================================== -->
     <section id="panel-log" role="tabpanel" aria-labelledby="tab-log" class="stack hidden">
       <div class="surface-card stack">
         <div class="section-head">
           <div>
-            <div class="section-kicker">SQLite Session History</div>
-            <h2 class="section-title">Recent Intake Log</h2>
+            <div class="section-kicker">SQLite ERP Ledger</div>
+            <h2 class="section-title">Intake Ledger</h2>
             <p class="section-subtitle">
-              Click any session row to reopen its full photo coverage &amp; damage disclosure report
-              or download Alex's Excel shot checklist.
+              Open any session straight into the Verification &amp; Audit Dossier or export its
+              28-column Shot Checklist workbook.
             </p>
           </div>
           <button id="btn-refresh-log" type="button" class="btn btn-secondary btn-sm">
-            Refresh Log
+            Refresh Ledger
           </button>
         </div>
 
@@ -497,19 +663,219 @@
             <thead>
               <tr>
                 <th>Session ID</th>
-                <th>Garment</th>
+                <th>Category</th>
+                <th>Brand / Ref</th>
                 <th>Photos</th>
-                <th>Status</th>
                 <th>Score</th>
-                <th>Intake Routing</th>
+                <th>Decision</th>
                 <th>Updated</th>
-                <th>Action</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="log-tbody"></tbody>
           </table>
         </div>
       </div>
+    </section>
+
+    <!-- =====================================================================
+         WORKSPACE 4: ADMIN & DEBUG
+         ===================================================================== -->
+    <section id="panel-admin" role="tabpanel" aria-labelledby="tab-admin" class="stack hidden">
+      <!-- System Diagnostics Strip -->
+      <div class="surface-card stack">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">System Diagnostics</div>
+            <h2 class="section-title">Runtime Health &amp; Compliance Locks</h2>
+            <p class="section-subtitle">
+              Live status for Azure OpenAI inference, local frozen OpenCLIP embeddings, SQLite ledger,
+              and permanent compliance guardrails (API keys are never exposed).
+            </p>
+          </div>
+          <button id="btn-refresh-admin" type="button" class="btn btn-secondary btn-sm">
+            Refresh Diagnostics
+          </button>
+        </div>
+
+        <div id="admin-diag-grid" class="diag-grid" aria-live="polite"></div>
+      </div>
+
+      <!-- Runtime Settings Form + Demo Sample Sandbox -->
+      <div class="admin-two-col">
+        <form id="admin-settings-form" class="surface-card stack">
+          <div class="row-between">
+            <div>
+              <div class="section-kicker">Persisted ERP Settings</div>
+              <h3 class="section-title" style="font-size: 1.15rem;">Runtime Configuration</h3>
+            </div>
+            <span class="pill pill-reject">Hard Compliance Gate &lt;= 49 · Locked ON</span>
+          </div>
+
+          <div class="settings-grid">
+            <div>
+              <label for="set-deployment" class="field-label">Frontier Deployment</label>
+              <select id="set-deployment" class="select" style="width: 100%;">
+                <option value="gpt-4.1">gpt-4.1</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+              </select>
+            </div>
+
+            <div>
+              <label for="set-poll-interval" class="field-label">Capture Poll Interval</label>
+              <select id="set-poll-interval" class="select" style="width: 100%;">
+                <option value="1500">1500 ms (Fast)</option>
+                <option value="2000">2000 ms (Default)</option>
+                <option value="3000">3000 ms (Relaxed)</option>
+                <option value="5000">5000 ms (Low Traffic)</option>
+                <option value="0">0 ms (Manual Poll Only)</option>
+              </select>
+            </div>
+
+            <div>
+              <label for="set-temperature" class="field-label">Temperature (0.0 – 1.0)</label>
+              <input id="set-temperature" class="input" type="number" min="0" max="1" step="0.05" style="width: 100%;" />
+            </div>
+
+            <div>
+              <label for="set-max-tokens" class="field-label">Max Tokens (300 – 4096)</label>
+              <input id="set-max-tokens" class="input" type="number" min="300" max="4096" step="50" style="width: 100%;" />
+            </div>
+
+            <div>
+              <label for="set-clip-threshold" class="field-label">OpenCLIP Soft-Match Cutoff</label>
+              <input id="set-clip-threshold" class="input" type="number" min="0.05" max="0.90" step="0.01" style="width: 100%;" />
+            </div>
+
+            <div>
+              <label for="set-public-url" class="field-label">Public Tunnel Base URL</label>
+              <input
+                id="set-public-url"
+                class="input"
+                type="url"
+                placeholder="https://your-tunnel.trycloudflare.com"
+                style="width: 100%;"
+              />
+            </div>
+
+            <div>
+              <label for="set-auto-approve-min" class="field-label">Auto-Approve Min (51 – 100)</label>
+              <input id="set-auto-approve-min" class="input" type="number" min="51" max="100" step="1" style="width: 100%;" />
+            </div>
+
+            <div>
+              <label for="set-human-review-min" class="field-label">Human Review Min (50 – 99)</label>
+              <input id="set-human-review-min" class="input" type="number" min="50" max="99" step="1" style="width: 100%;" />
+            </div>
+          </div>
+
+          <label class="toggle-row" for="set-auto-score">
+            <div>
+              <div style="font-size: 0.88rem; font-weight: 600;">Auto-Score on Mobile Complete</div>
+              <div style="font-size: 0.76rem; color: var(--fg-muted);">
+                Automatically invoke vision rubric scoring and slide to Card 3 when phone finishes capture.
+              </div>
+            </div>
+            <input id="set-auto-score" class="toggle-checkbox" type="checkbox" checked />
+          </label>
+
+          <div class="row-between">
+            <span class="field-help" style="margin: 0;">
+              Changes apply immediately to polling, QR links, OpenCLIP, and next scoring run.
+            </span>
+            <button id="btn-save-settings" type="submit" class="btn btn-primary">
+              Save Settings
+            </button>
+          </div>
+        </form>
+
+        <!-- Demo Sample Sandbox -->
+        <section class="surface-card stack" aria-label="Demo Sample Sandbox">
+          <div>
+            <div class="section-kicker">Demo &amp; QA Sandbox</div>
+            <h3 class="section-title" style="font-size: 1.15rem;">Load Local Sample &amp; Score</h3>
+            <p class="section-subtitle">
+              Test clean buy-in, hard compliance gate, or contradiction detection using local challenge
+              folders and jump straight into Card 3 with full Frontier Agent trace.
+            </p>
+          </div>
+
+          <div>
+            <label for="sandbox-sample-select" class="field-label">Local Sample Folder</label>
+            <select id="sandbox-sample-select" class="select" style="width: 100%;">
+              <option value="">Loading samples…</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="sandbox-garment-select" class="field-label">Garment Category</label>
+            <select id="sandbox-garment-select" class="select" style="width: 100%;">
+              <option value="jacket">Jacket</option>
+              <option value="pants">Pants</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="sandbox-preset-select" class="field-label">Rider Disclosure Preset</label>
+            <select id="sandbox-preset-select" class="select" style="width: 100%;">
+              <option value="clean">Clean (No Crash · Light Use)</option>
+              <option value="crash">Declared Crash (Hard Compliance Gate)</option>
+              <option value="contradiction">Contradiction Test: Light Use Claimed</option>
+            </select>
+          </div>
+
+          <button id="btn-sandbox-run" type="button" class="btn btn-primary btn-block">
+            Load &amp; Score in Audit Card →
+          </button>
+        </section>
+      </div>
+
+      <!-- Latest Frontier Agent Trace (Expanded by Default) -->
+      <section class="surface-card stack" aria-label="Latest Frontier Agent Trace">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Frontier Observability</div>
+            <h3 class="section-title" style="font-size: 1.15rem;">Latest Frontier Agent Trace</h3>
+            <p id="admin-trace-subtitle" class="section-subtitle">
+              Full agent identity, latency, token usage, prompts, and raw JSON output from the most recent scored intake.
+            </p>
+          </div>
+          <div class="row-wrap">
+            <button id="btn-admin-copy-prompt" type="button" class="btn btn-secondary btn-sm">
+              Copy Prompt
+            </button>
+            <button id="btn-admin-copy-json" type="button" class="btn btn-secondary btn-sm">
+              Copy Raw JSON
+            </button>
+          </div>
+        </div>
+
+        <div id="admin-trace-empty" class="empty-state">
+          <h3>No Frontier Agent trace recorded yet</h3>
+          <p style="font-size: 0.86rem;">
+            Score an intake session or run a sample from the Sandbox above to inspect full prompts and raw JSON output.
+          </p>
+        </div>
+
+        <div id="admin-trace-content" class="stack hidden">
+          <div id="admin-trace-stats" class="trace-meta-grid"></div>
+
+          <div class="code-block-group">
+            <span class="field-label" style="margin-bottom: 0;">System Prompt</span>
+            <pre class="code-pre"><code id="admin-trace-system"></code></pre>
+          </div>
+
+          <div class="code-block-group">
+            <span class="field-label" style="margin-bottom: 0;">User Prompt Sent</span>
+            <pre class="code-pre"><code id="admin-trace-user"></code></pre>
+          </div>
+
+          <div class="code-block-group">
+            <span class="field-label" style="margin-bottom: 0;">Raw Frontier JSON Response</span>
+            <pre class="code-pre"><code id="admin-trace-raw"></code></pre>
+          </div>
+        </div>
+      </section>
     </section>
   </main>
 
@@ -533,8 +899,8 @@
     <div class="footer-inner">
       <p class="disclaimer-text">
         <strong>Photo Coverage &amp; Damage Disclosure Only:</strong> This tool and Moto Reloaded do
-        not assess, certify, test, or guarantee protective performance. All intake, buy-in, and
-        retirement decisions are confirmed in person by store staff.
+        not assess, certify, test, or guarantee protective performance. All buy-in, review, and
+        responsible retirement decisions are confirmed in person by store staff.
       </p>
       <span class="pill pill-black">Inference-Only · Zero Model Training</span>
     </div>

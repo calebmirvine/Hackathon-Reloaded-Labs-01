@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Moto Reloaded — Guided Mobile Capture</title>
+  <title>Moto Reloaded · Guided Mobile Capture</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
@@ -26,8 +26,8 @@
           </svg>
         </div>
         <div>
-          <div class="brand-title" style="font-size: 0.94rem;">Moto Reloaded</div>
-          <div class="brand-subtitle">Guided Intake Photo Capture</div>
+          <div class="brand-title" style="font-size: 0.92rem;">Moto Reloaded</div>
+          <div class="brand-subtitle">Guided Intake Capture</div>
         </div>
       </div>
 
@@ -48,14 +48,12 @@
 
     <!-- Active Guided Capture Shell -->
     <div id="phone-capture-view" class="stack hidden">
-      <!-- Garment Category Switcher + Progress Bar -->
-      <section class="surface-card stack" style="padding: 0.95rem 1rem; gap: 0.75rem;">
+      <!-- Compact Category + Progress Header -->
+      <section class="surface-card stack" style="padding: 0.9rem 1rem; gap: 0.72rem;">
         <div class="row-between">
           <div>
-            <span class="field-label" style="margin-bottom: 0.15rem;">Garment Type</span>
-            <p style="font-size: 0.78rem; color: var(--fg-muted);">
-              Tailors Zone-1 framing prompts
-            </p>
+            <span class="field-label" style="margin-bottom: 0.1rem;">Garment Category</span>
+            <p style="font-size: 0.76rem; color: var(--fg-muted);">Tailors Zone-1 framing prompts</p>
           </div>
           <div class="segmented" role="group" aria-label="Select garment type">
             <button
@@ -79,7 +77,7 @@
 
         <div class="score-bar-row">
           <div class="score-bar-head">
-            <span>Required Photo Coverage</span>
+            <span>Photo Coverage Progress</span>
             <span id="phone-progress-text" class="tabular">0 / 6 captured</span>
           </div>
           <div class="progress-track">
@@ -87,276 +85,279 @@
           </div>
         </div>
 
-        <!-- Stepper Chips -->
+        <!-- Compact Angle Stepper Chips -->
         <nav id="phone-stepper" class="stepper-strip" aria-label="Capture steps"></nav>
       </section>
 
-      <!-- ===================================================================
-           PHOTO ANGLE CAPTURE STAGE (Steps 1–6 Required + Step 7 Defect)
-           =================================================================== -->
-      <section id="stage-photo" class="capture-stage" aria-live="polite">
-        <div class="row-between">
-          <div>
-            <div id="step-kicker" class="section-kicker">Step 1 of 6 · Required</div>
-            <h1 id="step-title" class="section-title">Front Exterior</h1>
+      <!-- Single Focal Stacked Tinder-Style Card Stage -->
+      <div class="phone-deck-wrap">
+        <!-- =================================================================
+             PHOTO ANGLE CARD (Steps 1–6 Required + Step 7 Defect)
+             ================================================================= -->
+        <section id="stage-photo" class="capture-stage" aria-live="polite">
+          <div class="row-between">
+            <div>
+              <div id="step-kicker" class="section-kicker">Step 1 of 6 · Required</div>
+              <h1 id="step-title" class="section-title">Front Exterior</h1>
+            </div>
+            <span id="step-status-pill" class="pill pill-neutral">Required</span>
           </div>
-          <span id="step-status-pill" class="pill pill-neutral">Not Captured</span>
-        </div>
 
-        <div id="step-hint" class="hint-card"></div>
+          <div id="step-hint" class="hint-card"></div>
 
-        <!-- Preview Frame (Parchment Backing) -->
-        <div class="phone-preview-frame">
-          <img id="step-preview-img" class="hidden" src="" alt="Captured angle preview" />
-          <div id="step-guide-empty" class="phone-guide-empty">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-              <path d="M4 7h3l2-2h6l2 2h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" />
-              <circle cx="12" cy="13" r="3.5" />
-            </svg>
-            <strong id="step-empty-label">Ready for Front photo</strong>
-            <span style="font-size: 0.82rem;">Lay garment flat with impact protectors removed.</span>
+          <!-- Preview Frame (Parchment Backing) -->
+          <div class="phone-preview-frame">
+            <img id="step-preview-img" class="hidden" src="" alt="Captured angle preview" />
+            <div id="step-guide-empty" class="phone-guide-empty">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path d="M4 7h3l2-2h6l2 2h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" />
+                <circle cx="12" cy="13" r="3.5" />
+              </svg>
+              <strong id="step-empty-label">Ready for Front photo</strong>
+              <span style="font-size: 0.82rem;">Lay garment flat with impact protectors removed.</span>
+            </div>
           </div>
-        </div>
 
-        <!-- Defect Multi-Shot Strip (only visible on Defect step) -->
-        <div id="phone-defect-gallery" class="defect-strip hidden"></div>
+          <!-- Defect Multi-Shot Strip (only visible on Defect step) -->
+          <div id="phone-defect-gallery" class="defect-strip hidden"></div>
 
-        <!-- Uploading Indicator -->
-        <div id="upload-busy" class="toast-banner hidden" role="status" aria-live="polite">
-          <span class="row-wrap">
-            <span class="spinner" aria-hidden="true"></span>
-            <span>Uploading &amp; verifying angle with OpenCLIP…</span>
-          </span>
-        </div>
+          <!-- Uploading Indicator -->
+          <div id="upload-busy" class="toast-banner hidden" role="status" aria-live="polite">
+            <span class="row-wrap">
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Uploading &amp; verifying angle with OpenCLIP…</span>
+            </span>
+          </div>
 
-        <!-- Instant OpenCLIP Feedback Banner -->
-        <div id="clip-feedback-banner" class="clip-feedback hidden" role="status" aria-live="polite">
-          <div id="clip-feedback-title" class="clip-feedback-title"></div>
-          <div id="clip-feedback-detail" class="clip-feedback-detail"></div>
-          <div id="clip-feedback-actions" class="row-wrap"></div>
-        </div>
+          <!-- Instant OpenCLIP Feedback Banner -->
+          <div id="clip-feedback-banner" class="clip-feedback hidden" role="status" aria-live="polite">
+            <div id="clip-feedback-title" class="clip-feedback-title"></div>
+            <div id="clip-feedback-detail" class="clip-feedback-detail"></div>
+            <div id="clip-feedback-actions" class="row-wrap"></div>
+          </div>
 
-        <!-- Native Camera & Library Inputs -->
-        <input
-          id="camera-input"
-          type="file"
-          accept="image/*"
-          capture="environment"
-          class="sr-only"
-        />
-        <input
-          id="library-input"
-          type="file"
-          accept="image/*"
-          class="sr-only"
-        />
+          <!-- Native Camera & Library Inputs -->
+          <input
+            id="camera-input"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            class="sr-only"
+          />
+          <input
+            id="library-input"
+            type="file"
+            accept="image/*"
+            class="sr-only"
+          />
 
-        <div class="stack" style="gap: 0.6rem;">
-          <button id="btn-take-photo" type="button" class="btn btn-primary btn-lg btn-block">
-            Take Photo
-          </button>
-          <button id="btn-choose-library" type="button" class="btn btn-secondary btn-block">
-            Choose from Photo Library
-          </button>
-        </div>
-
-        <div class="phone-nav-row">
-          <button id="btn-prev-step" type="button" class="btn btn-ghost">
-            ← Previous
-          </button>
-          <button id="btn-next-step" type="button" class="btn btn-secondary">
-            Next Angle →
-          </button>
-        </div>
-      </section>
-
-      <!-- ===================================================================
-           FINAL STEP: RIDER DISCLOSURE & FINISH
-           =================================================================== -->
-      <section id="stage-disclosure" class="capture-stage hidden" aria-live="polite">
-        <div>
-          <div class="section-kicker">Final Step · Rider Disclosure</div>
-          <h1 class="section-title">Quick Garment History</h1>
-          <p class="section-subtitle">
-            Honest disclosure helps Moto Reloaded route every item responsibly — whether for
-            in-store buy-in or circular upcycling.
-          </p>
-        </div>
-
-        <!-- Missing Angle Warning (non-blocking) -->
-        <div id="disclosure-missing-box" class="alert-box is-warn hidden">
-          <div class="alert-title">Some required angles are still missing</div>
-          <p id="disclosure-missing-text" style="font-size: 0.85rem; color: var(--fg-secondary);"></p>
-          <div>
-            <button id="btn-jump-missing" type="button" class="btn btn-secondary btn-sm">
-              Capture Missing Angle
+          <div class="stack" style="gap: 0.58rem;">
+            <button id="btn-take-photo" type="button" class="btn btn-primary btn-lg btn-block">
+              Take Photo
             </button>
-          </div>
-        </div>
-
-        <div class="stack" style="gap: 0.95rem;">
-          <div>
-            <span class="field-label">1. Has this garment ever been in a crash?</span>
-            <div class="segmented" style="width: 100%;" role="group" aria-label="Crash history">
-              <button
-                type="button"
-                class="segmented-btn is-selected"
-                style="flex: 1;"
-                data-rider-crash="false"
-                aria-pressed="true"
-              >
-                No Crash History
-              </button>
-              <button
-                type="button"
-                class="segmented-btn"
-                style="flex: 1;"
-                data-rider-crash="true"
-                aria-pressed="false"
-              >
-                Yes — Crash Involved
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <span class="field-label">2. Overall riding usage / exposure?</span>
-            <div class="segmented" style="width: 100%;" role="group" aria-label="Usage level">
-              <button
-                type="button"
-                class="segmented-btn"
-                style="flex: 1;"
-                data-rider-usage="light"
-                aria-pressed="false"
-              >
-                Light
-              </button>
-              <button
-                type="button"
-                class="segmented-btn is-selected"
-                style="flex: 1;"
-                data-rider-usage="moderate"
-                aria-pressed="true"
-              >
-                Moderate
-              </button>
-              <button
-                type="button"
-                class="segmented-btn"
-                style="flex: 1;"
-                data-rider-usage="heavy"
-                aria-pressed="false"
-              >
-                Heavy
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label for="rider-notes" class="field-label">3. Short notes (optional)</label>
-            <textarea
-              id="rider-notes"
-              class="textarea"
-              rows="3"
-              placeholder="Approx. year bought, washing care, missing thermal liner, or any repair/wear details…"
-            ></textarea>
-          </div>
-        </div>
-
-        <button id="btn-finish-submit" type="button" class="btn btn-primary btn-lg btn-block">
-          Finish &amp; Send to Counter
-        </button>
-
-        <button id="btn-back-to-photos" type="button" class="btn btn-ghost btn-block">
-          ← Back to Photo Steps
-        </button>
-      </section>
-
-      <!-- ===================================================================
-           POST-SUBMIT CONFIRMATION & LIVE SCORE SUMMARY
-           =================================================================== -->
-      <section id="stage-complete" class="capture-stage hidden" aria-live="polite">
-        <div class="row-between">
-          <span class="pill pill-approve">Sent to Counter</span>
-          <span id="complete-poll-pill" class="pill pill-neutral">
-            <span class="live-dot" aria-hidden="true"></span>
-            <span>Waiting for score…</span>
-          </span>
-        </div>
-
-        <div id="complete-waiting" class="stack" style="gap: 0.65rem;">
-          <h1 class="section-title">Photos received by the store counter!</h1>
-          <p style="font-size: 0.9rem; color: var(--fg-secondary);">
-            Moto Reloaded's counter screen is now generating your
-            <strong>Photo Coverage + Damage Disclosure</strong> score. Keep this tab open to view
-            the summary here too.
-          </p>
-          <div class="elevated-card row-wrap">
-            <span class="spinner" aria-hidden="true"></span>
-            <span style="font-size: 0.88rem;">Calculating score &amp; intake routing…</span>
-          </div>
-        </div>
-
-        <div id="complete-score-card" class="stack hidden">
-          <div id="phone-decision-banner" class="decision-banner">
-            <span id="phone-decision-pill" class="pill pill-black" style="align-self: flex-start;">—</span>
-            <div id="phone-decision-title" class="decision-title">—</div>
-            <p id="phone-decision-summary" class="decision-sub"></p>
-          </div>
-
-          <div class="elevated-card stack" style="gap: 0.7rem;">
-            <div class="row-between">
-              <span style="font-size: 0.85rem; color: var(--fg-secondary); font-weight: 600;">
-                Photo Coverage + Damage Disclosure Score
-              </span>
-              <strong id="phone-score-total" class="tabular" style="font-size: 1.65rem;">0 / 100</strong>
-            </div>
-
-            <div class="score-bar-row">
-              <div class="score-bar-head">
-                <span>Photo Coverage</span>
-                <span id="phone-cov-text" class="tabular">0 / 50</span>
-              </div>
-              <div class="progress-track">
-                <div id="phone-cov-bar" class="progress-fill" style="width: 0%;"></div>
-              </div>
-            </div>
-
-            <div class="score-bar-row">
-              <div class="score-bar-head">
-                <span>Damage Disclosure</span>
-                <span id="phone-dmg-text" class="tabular">0 / 50</span>
-              </div>
-              <div class="progress-track">
-                <div id="phone-dmg-bar" class="progress-fill" style="width: 0%;"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Retake Action on Phone if 0-49 Retake -->
-          <div id="phone-retake-card" class="alert-box is-warn hidden">
-            <div class="alert-title">Retake Flagged Angles</div>
-            <p id="phone-retake-text" style="font-size: 0.86rem; color: var(--fg-secondary);"></p>
-            <button id="btn-phone-retake-flagged" type="button" class="btn btn-primary btn-sm">
-              Retake Flagged Photos
+            <button id="btn-choose-library" type="button" class="btn btn-secondary btn-block">
+              Choose from Photo Library
             </button>
           </div>
 
-          <!-- Upcycling & Retirement Card on Phone if 0-49 Declined -->
-          <div id="phone-upcycle-card" class="upcycle-card hidden">
-            <span class="pill pill-reject" style="align-self: flex-start;">Circular Upcycling &amp; Trade-In</span>
-            <h2 id="phone-upcycle-headline" style="font-size: 1.02rem;">—</h2>
-            <p id="phone-upcycle-summary" style="font-size: 0.86rem; color: var(--fg-secondary);"></p>
-            <ul id="phone-upcycle-list" class="upcycle-list"></ul>
-            <div id="phone-upcycle-tradein" class="trade-in-box"></div>
+          <div class="phone-nav-row">
+            <button id="btn-prev-step" type="button" class="btn btn-ghost">
+              ← Previous
+            </button>
+            <button id="btn-next-step" type="button" class="btn btn-secondary">
+              Next Angle →
+            </button>
           </div>
-        </div>
-      </section>
+        </section>
+
+        <!-- =================================================================
+             FINAL CARD: RIDER DISCLOSURE & FINISH
+             ================================================================= -->
+        <section id="stage-disclosure" class="capture-stage hidden" aria-live="polite">
+          <div>
+            <div class="section-kicker">Final Step · Rider Disclosure</div>
+            <h1 class="section-title">Quick Garment History</h1>
+            <p class="section-subtitle">
+              Honest disclosure helps Moto Reloaded route every item responsibly — whether for
+              store buy-in or circular upcycling.
+            </p>
+          </div>
+
+          <!-- Missing Angle Warning (non-blocking) -->
+          <div id="disclosure-missing-box" class="alert-box is-warn hidden">
+            <div class="alert-title">Some required angles are still missing</div>
+            <p id="disclosure-missing-text" style="font-size: 0.85rem; color: var(--fg-secondary);"></p>
+            <div>
+              <button id="btn-jump-missing" type="button" class="btn btn-secondary btn-sm">
+                Capture Missing Angle
+              </button>
+            </div>
+          </div>
+
+          <div class="stack" style="gap: 0.92rem;">
+            <div>
+              <span class="field-label">1. Has this garment ever been in a crash?</span>
+              <div class="segmented" style="width: 100%;" role="group" aria-label="Crash history">
+                <button
+                  type="button"
+                  class="segmented-btn is-selected"
+                  style="flex: 1;"
+                  data-rider-crash="false"
+                  aria-pressed="true"
+                >
+                  No Crash History
+                </button>
+                <button
+                  type="button"
+                  class="segmented-btn"
+                  style="flex: 1;"
+                  data-rider-crash="true"
+                  aria-pressed="false"
+                >
+                  Yes — Crash Involved
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <span class="field-label">2. Overall riding usage / exposure?</span>
+              <div class="segmented" style="width: 100%;" role="group" aria-label="Usage level">
+                <button
+                  type="button"
+                  class="segmented-btn"
+                  style="flex: 1;"
+                  data-rider-usage="light"
+                  aria-pressed="false"
+                >
+                  Light
+                </button>
+                <button
+                  type="button"
+                  class="segmented-btn is-selected"
+                  style="flex: 1;"
+                  data-rider-usage="moderate"
+                  aria-pressed="true"
+                >
+                  Moderate
+                </button>
+                <button
+                  type="button"
+                  class="segmented-btn"
+                  style="flex: 1;"
+                  data-rider-usage="heavy"
+                  aria-pressed="false"
+                >
+                  Heavy
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label for="rider-notes" class="field-label">3. Short notes (optional)</label>
+              <textarea
+                id="rider-notes"
+                class="textarea"
+                rows="3"
+                placeholder="Approx. year bought, washing care, missing thermal liner, or any repair/wear details…"
+              ></textarea>
+            </div>
+          </div>
+
+          <button id="btn-finish-submit" type="button" class="btn btn-primary btn-lg btn-block">
+            Finish &amp; Send to Counter
+          </button>
+
+          <button id="btn-back-to-photos" type="button" class="btn btn-ghost btn-block">
+            ← Back to Photo Steps
+          </button>
+        </section>
+
+        <!-- =================================================================
+             POST-SUBMIT CONFIRMATION & LIVE SCORE CARD
+             ================================================================= -->
+        <section id="stage-complete" class="capture-stage hidden" aria-live="polite">
+          <div class="row-between">
+            <span class="pill pill-approve">Sent to Counter</span>
+            <span id="complete-poll-pill" class="pill pill-neutral">
+              <span class="live-dot" aria-hidden="true"></span>
+              <span>Waiting for score…</span>
+            </span>
+          </div>
+
+          <div id="complete-waiting" class="stack" style="gap: 0.65rem;">
+            <h1 class="section-title">Photos received by the store counter!</h1>
+            <p style="font-size: 0.9rem; color: var(--fg-secondary);">
+              Moto Reloaded's counter screen is now generating your
+              <strong>Photo Coverage + Damage Disclosure</strong> score. Keep this tab open to view
+              the summary here too.
+            </p>
+            <div class="elevated-card row-wrap">
+              <span class="spinner" aria-hidden="true"></span>
+              <span style="font-size: 0.88rem;">Calculating score &amp; intake routing…</span>
+            </div>
+          </div>
+
+          <div id="complete-score-card" class="stack hidden">
+            <div id="phone-decision-banner" class="decision-banner">
+              <span id="phone-decision-pill" class="pill pill-black" style="align-self: flex-start;">—</span>
+              <div id="phone-decision-title" class="decision-title">—</div>
+              <p id="phone-decision-summary" class="decision-sub"></p>
+            </div>
+
+            <div class="elevated-card stack" style="gap: 0.7rem;">
+              <div class="row-between">
+                <span style="font-size: 0.84rem; color: var(--fg-secondary); font-weight: 600;">
+                  Photo Coverage + Damage Disclosure Score
+                </span>
+                <strong id="phone-score-total" class="tabular" style="font-size: 1.65rem;">0 / 100</strong>
+              </div>
+
+              <div class="score-bar-row">
+                <div class="score-bar-head">
+                  <span>Photo Coverage</span>
+                  <span id="phone-cov-text" class="tabular">0 / 50</span>
+                </div>
+                <div class="progress-track">
+                  <div id="phone-cov-bar" class="progress-fill" style="width: 0%;"></div>
+                </div>
+              </div>
+
+              <div class="score-bar-row">
+                <div class="score-bar-head">
+                  <span>Damage Disclosure</span>
+                  <span id="phone-dmg-text" class="tabular">0 / 50</span>
+                </div>
+                <div class="progress-track">
+                  <div id="phone-dmg-bar" class="progress-fill" style="width: 0%;"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Retake Action on Phone if 0-49 Retake -->
+            <div id="phone-retake-card" class="alert-box is-warn hidden">
+              <div class="alert-title">Retake Flagged Angles</div>
+              <p id="phone-retake-text" style="font-size: 0.86rem; color: var(--fg-secondary);"></p>
+              <button id="btn-phone-retake-flagged" type="button" class="btn btn-primary btn-sm">
+                Retake Flagged Photos
+              </button>
+            </div>
+
+            <!-- Upcycling & Retirement Card on Phone if 0-49 Declined -->
+            <div id="phone-upcycle-card" class="upcycle-card hidden">
+              <span class="pill pill-reject" style="align-self: flex-start;">Circular Upcycling &amp; Trade-In</span>
+              <h2 id="phone-upcycle-headline" style="font-size: 1.02rem;">—</h2>
+              <p id="phone-upcycle-summary" style="font-size: 0.86rem; color: var(--fg-secondary);"></p>
+              <ul id="phone-upcycle-list" class="upcycle-list"></ul>
+              <div id="phone-upcycle-tradein" class="trade-in-box"></div>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   </main>
 
   <footer class="site-footer">
-    <div class="footer-inner" style="max-width: 560px; padding: 0.85rem 1rem;">
+    <div class="footer-inner" style="max-width: 540px; padding: 0.85rem 1rem;">
       <p class="disclaimer-text">
         <strong>Photo Coverage &amp; Damage Disclosure Only:</strong> This app and Moto Reloaded do
         not assess, certify, test, or guarantee protective performance.

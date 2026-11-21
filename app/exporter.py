@@ -3,7 +3,7 @@
 
 Generates an in-memory openpyxl workbook whose active 'Shot Checklist' sheet
 matches the exact 28 Row-5 headers of `reloaded-labs-shot-checklist.xlsx`,
-plus a structured 'Intake Report' sheet for store staff (Alex / Barbara).
+plus a structured 'Intake Report' sheet for store intake staff.
 
 Wording policy: strictly reports "photo coverage" and "damage disclosure" only.
 """
@@ -396,7 +396,7 @@ def build_checklist_workbook_bytes(
         elif decision == "rejected_retake":
             buy_in_text = "No — Incomplete or unclear photos; retake required"
         elif decision == "human_review":
-            buy_in_text = "Pending — Queued for Alex / Barbara in-hand physical inspection"
+            buy_in_text = "Pending — Queued for store staff in-hand physical inspection"
         elif score.get("buy_in_recommended"):
             buy_in_text = "Intake-ready — Subject to in-hand physical confirmation by staff"
         else:

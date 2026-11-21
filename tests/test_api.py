@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import io
+import json
+import re
 import shutil
 from pathlib import Path
 
@@ -13,6 +15,8 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 REQUIRED_ANGLES = ["front", "left", "right", "back", "inside", "labels"]
+CANARY_API_KEY = "CANARY_SECRET_AZURE_KEY_987654321"
+PERSONAL_NAMES_RE = re.compile(r"\b(alex|barbara|mathias)\b", re.IGNORECASE)
 
 EXPECTED_ROW5_HEADERS = [
     "Item ID",
@@ -52,6 +56,30 @@ def _make_jpeg_bytes(color: tuple[int, int, int] = (70, 73, 60)) -> bytes:
     img = Image.new("RGB", (64, 64), color=color)
     img.save(buf, format="JPEG", quality=85)
     return buf.getvalue()
+
+
+def _sample_agent_trace(deployment: str = "gpt-4.1") -> dict:
+    return {
+        "provider": "Azure OpenAI",
+        "agent_label": "Azure OpenAI Vision Rubric Agent",
+        "deployment": deployment,
+        "model_returned": f"{deployment}-2025-04-14",
+        "api_version": "2025-01-01-preview",
+        "endpoint_host": "aoai-motoreloaded-rl01.openai.azure.com",
+        "temperature": 0.1,
+        "max_tokens": 1800,
+        "latency_ms": 420,
+        "usage": {
+            "prompt_tokens": 1240,
+            "completion_tokens": 280,
+            "total_tokens": 1520,
+        },
+        "clip_stage1_model": "OpenCLIP ViT-B-32 (laion2b_s34b_b79k, frozen inference)",
+        "photos_evaluated": 6,
+        "system_prompt": "Moto Reloaded photo coverage and damage disclosure rubric prompt.",
+        "user_prompt": "Garment Type: JACKET\nPhoto #1 — Requested slot: 'front'",
+        "raw_response": json.dumps({"summary": "Clean photo coverage and damage disclosure."}),
+    }
 
 
 def _clean_vision_payload() -> dict:
@@ -129,6 +157,7 @@ def _clean_vision_payload() -> dict:
         "contradiction_flagged": False,
         "contradiction_reason": None,
         "summary": "All 6 angles captured clearly with no visible damage disclosed.",
+        "agent_trace": _sample_agent_trace(),
     }
 
 
@@ -207,6 +236,7 @@ def _human_review_vision_payload() -> dict:
         "contradiction_flagged": True,
         "contradiction_reason": "Usage declared light, but visible fading suggests heavier use.",
         "summary": "Moderate Zone 2 wear and hardware note flagged for in-hand inspection.",
+        "agent_trace": _sample_agent_trace(),
     }
 
 
@@ -215,6 +245,10 @@ def api_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Provide an isolated FastAPI TestClient with temp SQLite DB and mocked AI calls."""
     db_file = tmp_path / "test_intake.db"
     monkeypatch.setenv("INTAKE_DB_PATH", str(db_file))
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", CANARY_API_KEY)
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://aoai-motoreloaded-rl01.openai.azure.com/")
+    monkeypatch.setenv("AZURE_OPENAI_VISION_DEPLOYMENT", "gpt-4.1")
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
 
     import app.clip_matcher as clip_matcher
     import app.db as db_mod
@@ -398,14 +432,14 @@ def test_human_review_queue_flow(api_env: dict) -> None:
 
     update_resp = client.post(
         f"/review-queue/{session_id}",
-        json={"status": "approved", "staff_notes": "Alex inspected in-hand; seams intact."},
+        json={"status": "approved", "staff_notes": "Reviewer inspected in-hand; seams intact."},
     )
     assert update_resp.status_code == 200, update_resp.text
 
     queue_after = client.get("/review-queue").json()["items"]
     updated = [item for item in queue_after if item["session_id"] == session_id][0]
     assert updated.get("review_status", updated.get("status")) == "approved"
-    assert "Alex inspected" in str(updated.get("staff_notes", ""))
+    assert "Reviewer inspected" in str(updated.get("staff_notes", ""))
 
 
 def test_hard_gate_crash_disclosure_via_score_endpoint(api_env: dict) -> None:
@@ -447,3 +481,172 @@ def test_invalid_angle_and_unknown_session_rejected(api_env: dict) -> None:
         files={"file": ("helmet.jpg", _make_jpeg_bytes(), "image/jpeg")},
     )
     assert bad_upload.status_code in (400, 422)
+
+
+def test_agent_trace_persisted_and_no_api_key_leaked(api_env: dict) -> None:
+    """agent_trace persists through POST /score, GET /status/<id>, and GET /admin/diagnostics without API key."""
+    client: TestClient = api_env["client"]
+
+    session_id = client.post("/sessions", json={"garment_type": "jacket"}).json()["session_id"]
+    api_env["created_sessions"].append(session_id)
+    _upload_all_required_angles(client, session_id)
+    client.post(
+        f"/sessions/{session_id}/complete",
+        json={"garment_type": "jacket", "disclosure": {"crash": False, "usage": "light"}},
+    )
+
+    score_resp = client.post("/score", json={"session_id": session_id})
+    assert score_resp.status_code == 200, score_resp.text
+    score_data = score_resp.json()
+    trace = score_data.get("agent_trace")
+    assert isinstance(trace, dict)
+    assert trace["provider"] == "Azure OpenAI"
+    assert trace["deployment"] == "gpt-4.1"
+    assert trace["system_prompt"]
+    assert trace["user_prompt"]
+    assert trace["raw_response"]
+
+    status_resp = client.get(f"/status/{session_id}")
+    assert status_resp.status_code == 200
+    status_data = status_resp.json()
+    assert status_data["score"]["agent_trace"]["provider"] == "Azure OpenAI"
+
+    settings_resp = client.get("/admin/settings")
+    assert settings_resp.status_code == 200
+    diag_resp = client.get("/admin/diagnostics")
+    assert diag_resp.status_code == 200
+    diag_data = diag_resp.json()
+
+    latest_trace = diag_data.get("latest_agent_trace")
+    assert isinstance(latest_trace, dict)
+    assert latest_trace["session_id"] == session_id
+    assert latest_trace["agent_trace"]["deployment"] == "gpt-4.1"
+
+    # Canary API key must NEVER appear anywhere in API payloads
+    for name, payload in (
+        ("/score", score_data),
+        ("/status", status_data),
+        ("/admin/settings", settings_resp.json()),
+        ("/admin/diagnostics", diag_data),
+    ):
+        serialized = json.dumps(payload)
+        assert CANARY_API_KEY not in serialized, f"Secret API key leaked in {name}!"
+
+
+def test_admin_settings_and_diagnostics_endpoints(api_env: dict) -> None:
+    """Admin settings persist & validate cleanly, override QR URL, and keep Hard Gate locked."""
+    client: TestClient = api_env["client"]
+
+    initial = client.get("/admin/settings")
+    assert initial.status_code == 200, initial.text
+    init_body = initial.json()
+    assert init_body["hard_gate_locked"] is True
+    assert "gpt-4.1" in init_body["available_deployments"]
+    assert "gpt-4.1-mini" in init_body["available_deployments"]
+    assert init_body["settings"]["poll_interval_ms"] == 2000
+
+    # Persist valid settings update
+    updated = client.post(
+        "/admin/settings",
+        json={
+            "vision_deployment": "gpt-4.1-mini",
+            "temperature": 0.25,
+            "max_tokens": 1400,
+            "poll_interval_ms": 3000,
+            "auto_score_on_complete": False,
+            "clip_warn_threshold": 0.35,
+            "auto_approve_min": 92,
+            "human_review_min": 55,
+            "public_base_url": "https://moto-demo.trycloudflare.com",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    upd_body = updated.json()
+    assert upd_body["hard_gate_locked"] is True
+    assert upd_body["settings"]["vision_deployment"] == "gpt-4.1-mini"
+    assert upd_body["settings"]["poll_interval_ms"] == 3000
+    assert upd_body["settings"]["auto_score_on_complete"] is False
+    assert upd_body["settings"]["auto_approve_min"] == 92
+    assert upd_body["settings"]["human_review_min"] == 55
+
+    # Re-fetch confirms SQLite persistence
+    refetched = client.get("/admin/settings").json()
+    assert refetched["settings"]["vision_deployment"] == "gpt-4.1-mini"
+    assert refetched["settings"]["public_base_url"] == "https://moto-demo.trycloudflare.com"
+
+    # Session creation honors public_base_url override
+    sess = client.post("/sessions", json={"garment_type": "jacket"}).json()
+    api_env["created_sessions"].append(sess["session_id"])
+    assert sess["capture_url"].startswith("https://moto-demo.trycloudflare.com/capture/")
+
+    # Invalid settings rejected with 422
+    for bad_patch in (
+        {"human_review_min": 85, "auto_approve_min": 80},
+        {"human_review_min": 40, "auto_approve_min": 85},
+        {"vision_deployment": "unsupported-model-99"},
+        {"temperature": 2.5},
+    ):
+        bad_resp = client.post("/admin/settings", json=bad_patch)
+        assert bad_resp.status_code == 422, f"Expected 422 for {bad_patch}, got {bad_resp.status_code}"
+
+    # Verify Hard Gate still caps <= 49 even with custom thresholds active
+    _upload_all_required_angles(client, sess["session_id"])
+    hard_gated = client.post(
+        "/score",
+        json={"session_id": sess["session_id"], "disclosure": {"crash": True}},
+    ).json()
+    assert hard_gated["total_score"] <= 49
+    assert hard_gated["decision"] == "rejected_upcycle"
+    assert hard_gated["buy_in_recommended"] is False
+    assert hard_gated["hard_gate_triggered"] is True
+
+    # Diagnostics payload structure & zero secret exposure
+    diag = client.get("/admin/diagnostics")
+    assert diag.status_code == 200, diag.text
+    diag_body = diag.json()
+    assert diag_body["azure"]["configured"] is True
+    assert diag_body["azure"]["endpoint_host"] == "aoai-motoreloaded-rl01.openai.azure.com"
+    assert diag_body["azure"]["active_deployment"] == "gpt-4.1-mini"
+    assert "api_key" not in json.dumps(diag_body["azure"]).lower()
+    assert diag_body["openclip"]["checkpoint"] == "ViT-B-32"
+    assert diag_body["openclip"]["pretrained"] == "laion2b_s34b_b79k"
+    assert diag_body["database"]["session_count"] >= 1
+    assert diag_body["compliance"]["hard_gate_locked"] is True
+    assert diag_body["compliance"]["inference_only"] is True
+    assert CANARY_API_KEY not in json.dumps(diag_body)
+
+
+def test_zero_personal_names_across_app() -> None:
+    """No hardcoded staff/owner personal names (Alex, Barbara, Mathias) appear anywhere in app/."""
+    app_root = Path(__file__).resolve().parent.parent / "app"
+    hits: list[str] = []
+    for path in sorted(app_root.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in {".py", ".html", ".css", ".js"}:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            if PERSONAL_NAMES_RE.search(line):
+                hits.append(f"{path.relative_to(app_root.parent)}:{line_no}: {line.strip()}")
+    assert not hits, "Hardcoded personal names found in app/:\n" + "\n".join(hits)
+
+
+def test_laptop_js_no_flicker_and_smart_polling() -> None:
+    """laptop.js tracks per-angle DOM signatures (no full innerHTML rebuild on poll) and stops on scored."""
+    laptop_js = Path(__file__).resolve().parent.parent / "app" / "static" / "laptop.js"
+    src = laptop_js.read_text(encoding="utf-8")
+
+    # Signature-based incremental updates instead of wiping angleGrid.innerHTML every poll
+    assert "angleSignatures" in src, "Expected per-angle signature map (angleSignatures) in laptop.js"
+    assert not re.search(
+        r"function\s+renderSessionStatus[\s\S]{0,4000}angleGrid\.innerHTML\s*=",
+        src,
+    ), "renderSessionStatus must NOT rebuild angleGrid.innerHTML on every poll!"
+
+    # Polling stops automatically once session is scored
+    assert re.search(
+        r"""status\s*===\s*["']scored["'][\s\S]{0,400}stopPolling\s*\(""",
+        src,
+    ) or re.search(
+        r"""stopPolling\s*\(\)[\s\S]{0,200}["']scored["']""",
+        src,
+    ), "Expected laptop.js to stop polling automatically when status === 'scored'"

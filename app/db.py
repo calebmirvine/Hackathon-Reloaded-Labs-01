@@ -2,8 +2,8 @@
 """SQLite persistence layer for Moto Reloaded Gear Intake Checker.
 
 Stores intake sessions, uploaded photo metadata and angle-check results,
-0-100 photo coverage + damage disclosure score records, and the human
-review queue for staff in-hand inspection.
+0-100 photo coverage + damage disclosure score records, the human review
+queue for store staff in-hand inspection, and validated runtime ERP settings.
 """
 
 from __future__ import annotations
@@ -26,6 +26,29 @@ REQUIRED_ANGLES: tuple[str, ...] = (
 )
 
 DEFAULT_DB_PATH = "intake.db"
+
+ALLOWED_DEPLOYMENTS: tuple[str, ...] = ("gpt-4.1", "gpt-4.1-mini")
+
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "vision_deployment": "gpt-4.1",
+    "temperature": 0.1,
+    "max_tokens": 1800,
+    "poll_interval_ms": 2000,
+    "auto_score_on_complete": True,
+    "clip_warn_threshold": 0.22,
+    "auto_approve_min": 85,
+    "human_review_min": 50,
+    "public_base_url": "",
+}
+
+_FORBIDDEN_SECRET_TOKENS: tuple[str, ...] = (
+    "api_key",
+    "apikey",
+    "secret",
+    "password",
+    "credential",
+    "auth_token",
+)
 
 
 def _utc_now() -> str:
@@ -193,6 +216,12 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
             """
         )
@@ -537,3 +566,229 @@ def update_review_item(
     if row is None:
         return None
     return _row_to_review_item(row)
+
+
+def _default_settings_with_env() -> dict[str, Any]:
+    """Build baseline settings merging DEFAULT_SETTINGS with non-secret env fallbacks."""
+    settings = dict(DEFAULT_SETTINGS)
+    env_deployment = os.environ.get("AZURE_OPENAI_VISION_DEPLOYMENT", "").strip()
+    if env_deployment in ALLOWED_DEPLOYMENTS:
+        settings["vision_deployment"] = env_deployment
+    env_public_url = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if env_public_url:
+        settings["public_base_url"] = env_public_url
+    return settings
+
+
+def get_settings() -> dict[str, Any]:
+    """Return runtime settings merging defaults, env fallbacks, and app_settings rows."""
+    settings = _default_settings_with_env()
+    with _connect() as conn:
+        try:
+            rows = conn.execute("SELECT key, value_json FROM app_settings").fetchall()
+        except sqlite3.OperationalError:
+            return settings
+    for row in rows:
+        key = row["key"]
+        if key not in DEFAULT_SETTINGS:
+            continue
+        parsed = _parse_json(row["value_json"], DEFAULT_SETTINGS[key])
+        settings[key] = parsed
+    return settings
+
+
+def _validate_setting_value(key: str, value: Any) -> Any:
+    if key == "vision_deployment":
+        if not isinstance(value, str) or value.strip() not in ALLOWED_DEPLOYMENTS:
+            raise ValueError(
+                f"vision_deployment must be one of {list(ALLOWED_DEPLOYMENTS)}"
+            )
+        return value.strip()
+
+    if key == "temperature":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("temperature must be a number between 0.0 and 1.0")
+        val = float(value)
+        if not (0.0 <= val <= 1.0):
+            raise ValueError("temperature must be between 0.0 and 1.0")
+        return round(val, 4)
+
+    if key == "max_tokens":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("max_tokens must be an integer between 300 and 4096")
+        if not (300 <= value <= 4096):
+            raise ValueError("max_tokens must be between 300 and 4096")
+        return value
+
+    if key == "poll_interval_ms":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(
+                "poll_interval_ms must be 0 (manual) or an integer between 500 and 30000"
+            )
+        if value != 0 and not (500 <= value <= 30000):
+            raise ValueError(
+                "poll_interval_ms must be 0 (manual) or between 500 and 30000"
+            )
+        return value
+
+    if key == "auto_score_on_complete":
+        if not isinstance(value, bool):
+            raise ValueError("auto_score_on_complete must be a boolean")
+        return value
+
+    if key == "clip_warn_threshold":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("clip_warn_threshold must be a number between 0.05 and 0.9")
+        val = float(value)
+        if not (0.05 <= val <= 0.9):
+            raise ValueError("clip_warn_threshold must be between 0.05 and 0.9")
+        return round(val, 4)
+
+    if key == "human_review_min":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("human_review_min must be an integer >= 50")
+        if not (50 <= value <= 99):
+            raise ValueError(
+                "human_review_min must be between 50 and 99 (Hard Compliance Gate <= 49 is permanently locked)"
+            )
+        return value
+
+    if key == "auto_approve_min":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("auto_approve_min must be an integer between 51 and 100")
+        if not (51 <= value <= 100):
+            raise ValueError("auto_approve_min must be between 51 and 100")
+        return value
+
+    if key == "public_base_url":
+        if not isinstance(value, str):
+            raise ValueError("public_base_url must be a string")
+        cleaned = value.strip().rstrip("/")
+        if cleaned and not (
+            cleaned.startswith("http://") or cleaned.startswith("https://")
+        ):
+            raise ValueError(
+                "public_base_url must be empty or start with http:// or https://"
+            )
+        return cleaned
+
+    raise ValueError(f"Unsupported setting key: {key}")
+
+
+def update_settings(patch: dict[str, Any]) -> dict[str, Any]:
+    """Validate and persist allowed runtime settings into app_settings.
+
+    Rejects secret-like keys and out-of-range values with ValueError; ignores
+    other unknown keys; enforces 50 <= human_review_min < auto_approve_min <= 100
+    so the Hard Compliance Gate (<= 49) remains permanently locked.
+    """
+    if not isinstance(patch, dict):
+        raise ValueError("Settings patch must be a JSON object")
+
+    for raw_key in patch:
+        lowered = str(raw_key).lower()
+        if raw_key not in DEFAULT_SETTINGS and any(
+            token in lowered for token in _FORBIDDEN_SECRET_TOKENS
+        ):
+            raise ValueError(f"Refusing to persist secret or credential key: {raw_key}")
+
+    current = get_settings()
+    validated: dict[str, Any] = {}
+    for key, value in patch.items():
+        if key not in DEFAULT_SETTINGS or value is None:
+            continue
+        validated[key] = _validate_setting_value(key, value)
+
+    merged = {**current, **validated}
+    if not (50 <= int(merged["human_review_min"]) < int(merged["auto_approve_min"]) <= 100):
+        raise ValueError(
+            "Thresholds must satisfy 50 <= human_review_min < auto_approve_min <= 100 "
+            "(Hard Compliance Gate <= 49 is permanently locked)"
+        )
+
+    if validated:
+        now = _utc_now()
+        with _connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            for key, value in validated.items():
+                conn.execute(
+                    """
+                    INSERT INTO app_settings (key, value_json, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value_json = excluded.value_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (key, json.dumps(value), now),
+                )
+
+    return get_settings()
+
+
+def get_latest_agent_trace() -> dict[str, Any] | None:
+    """Return the most recent persisted score entry containing a non-null agent_trace."""
+    with _connect() as conn:
+        try:
+            rows = conn.execute(
+                """
+                SELECT
+                    sc.session_id AS session_id,
+                    s.garment_type AS garment_type,
+                    sc.total_score AS total_score,
+                    sc.decision AS decision,
+                    sc.updated_at AS updated_at,
+                    sc.result_json AS result_json
+                FROM scores sc
+                JOIN sessions s ON s.session_id = sc.session_id
+                ORDER BY sc.updated_at DESC, sc.created_at DESC
+                """
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return None
+
+    for row in rows:
+        parsed = _parse_json(row["result_json"], {})
+        if not isinstance(parsed, dict):
+            continue
+        trace = parsed.get("agent_trace")
+        if trace is not None:
+            return {
+                "session_id": row["session_id"],
+                "garment_type": row["garment_type"],
+                "total_score": int(row["total_score"]),
+                "decision": row["decision"],
+                "updated_at": row["updated_at"],
+                "agent_trace": trace,
+            }
+    return None
+
+
+def get_db_stats() -> dict[str, Any]:
+    """Return database path and session/review counts for diagnostics."""
+    db_path = get_db_path()
+    with _connect() as conn:
+        try:
+            session_count = int(
+                conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+            )
+            pending_review_count = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM review_queue WHERE status = 'pending'"
+                ).fetchone()[0]
+            )
+        except sqlite3.OperationalError:
+            session_count = 0
+            pending_review_count = 0
+    return {
+        "db_path": db_path,
+        "session_count": session_count,
+        "pending_review_count": pending_review_count,
+    }

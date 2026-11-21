@@ -537,3 +537,111 @@ def test_wording_compliance_photo_coverage_and_damage_disclosure_only() -> None:
         assert not FORBIDDEN_SAFETY_CLAIMS_RE.search(
             combined_non_disclaimer
         ), f"Forbidden safety certification wording found: {combined_non_disclaimer}"
+
+
+def test_agent_trace_passthrough_in_compute_score() -> None:
+    """compute_score() preserves Stage-2 agent_trace cleanly and returns None when absent."""
+    sample_trace = {
+        "provider": "Azure OpenAI",
+        "agent_label": "Azure OpenAI Vision Rubric Agent",
+        "deployment": "gpt-4.1",
+        "model_returned": "gpt-4.1-2025-04-14",
+        "api_version": "2025-01-01-preview",
+        "endpoint_host": "aoai-motoreloaded-rl01.openai.azure.com",
+        "temperature": 0.1,
+        "max_tokens": 1800,
+        "latency_ms": 512,
+        "usage": {"prompt_tokens": 1100, "completion_tokens": 220, "total_tokens": 1320},
+        "clip_stage1_model": "OpenCLIP ViT-B-32 (laion2b_s34b_b79k, frozen inference)",
+        "photos_evaluated": 6,
+        "system_prompt": "Moto Reloaded rubric prompt",
+        "user_prompt": "Garment Type: JACKET",
+        "raw_response": '{"checklist": []}',
+    }
+    vision_with_trace = make_clean_vision_result()
+    vision_with_trace["agent_trace"] = sample_trace
+
+    res_with = compute_score(
+        vision_result=vision_with_trace,
+        photos=make_photos(),
+        garment_type="jacket",
+        disclosure={"crash": False, "usage": "light"},
+    )
+    assert res_with["agent_trace"] == sample_trace
+
+    res_without = compute_score(
+        vision_result=make_clean_vision_result(),
+        photos=make_photos(),
+        garment_type="jacket",
+        disclosure={"crash": False, "usage": "light"},
+    )
+    assert res_without.get("agent_trace") is None
+
+
+def test_configurable_thresholds_preserve_locked_hard_gate() -> None:
+    """Custom auto_approve_min/human_review_min shift routing while Hard Gate stays locked <= 49."""
+    # Single minor damage item -> score = 50 + (50 - 6) = 94; two minor items -> 88
+    two_minor_checklist = [
+        {
+            "key": "angles_complete",
+            "category": "photo_coverage",
+            "label": "All required angles visible",
+            "passed": True,
+            "severity": "none",
+            "reason": "All 6 angles uploaded.",
+        },
+        {
+            "key": "zone2_3_wear",
+            "category": "damage_disclosure",
+            "label": "Zone 2/3 wear",
+            "passed": False,
+            "severity": "minor",
+            "reason": "Light cuff wear.",
+        },
+        {
+            "key": "lining_pockets",
+            "category": "damage_disclosure",
+            "label": "Interior lining",
+            "passed": False,
+            "severity": "minor",
+            "reason": "Minor pilling on collar lining.",
+        },
+    ]
+    vision_88 = make_clean_vision_result(checklist_overrides=two_minor_checklist)
+
+    default_res = compute_score(vision_88, make_photos(), "jacket", {"crash": False})
+    assert default_res["total_score"] == 88
+    assert default_res["decision"] == "auto_approved"
+
+    stricter_res = compute_score(
+        vision_88,
+        make_photos(),
+        "jacket",
+        {"crash": False},
+        auto_approve_min=92,
+        human_review_min=60,
+    )
+    assert stricter_res["total_score"] == 88
+    assert stricter_res["decision"] == "human_review"
+    assert stricter_res["buy_in_recommended"] is False
+
+    # Even with permissive thresholds, Hard Compliance Gate MUST remain locked <= 49
+    hard_gated = compute_score(
+        make_clean_vision_result(
+            hard_gate_flags={
+                "crash_evident": False,
+                "contamination_evident": False,
+                "zone1_breach_or_repair": True,
+            }
+        ),
+        make_photos(),
+        "jacket",
+        {"crash": True},
+        auto_approve_min=55,
+        human_review_min=50,
+    )
+    assert hard_gated["total_score"] <= 49
+    assert hard_gated["decision"] == "rejected_upcycle"
+    assert hard_gated["buy_in_recommended"] is False
+    assert hard_gated["hard_gate_triggered"] is True
+    assert hard_gated.get("upcycle_plan")

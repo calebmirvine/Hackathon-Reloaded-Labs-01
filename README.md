@@ -4,6 +4,28 @@
 
 Store intake and buy-in **Gear Intake Checker** for Moto Reloaded (motorcycle jackets and pants), producing a 0–100 **`"photo coverage + damage disclosure"`** score and routing compromised or retired gear toward circular upcycling and responsible retirement.
 
+## Quick Start
+
+```bash
+# 1. Install dependencies into .venv (Python 3.11+)
+uv sync
+
+# 2. Build local frozen-inference OpenCLIP reference embeddings (refs.npy + refs_meta.json, gitignored)
+uv run python scripts/build_refs.py
+
+# 3. Start the FastAPI server (Laptop Counter UI at /, Phone Capture at /capture/<id>)
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# 4. Expose over HTTPS for mobile phone camera access (in a second terminal)
+cloudflared tunnel --url http://localhost:8000
+# or: ngrok http 8000
+
+# 5. Run the offline test suite (unit + FastAPI integration tests)
+uv run pytest
+```
+
+> Copy your Azure OpenAI credentials (`AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_API_VERSION`, `AZURE_OPENAI_VISION_DEPLOYMENT=gpt-4.1`) into `.env` (gitignored) before live scoring. Optionally set `PUBLIC_BASE_URL` to your HTTPS tunnel URL for QR code generation.
+
 ## No model training
 
 No model is trained or fine-tuned on any challenge or intake photographs (**Participant Agreement v2.0**: *"Don't train or fine-tune a model on the photo set"*).

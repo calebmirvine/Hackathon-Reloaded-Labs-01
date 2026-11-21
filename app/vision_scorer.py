@@ -1,0 +1,455 @@
+# Created by Caleb M. Irvine for use by Moto Reloaded
+"""Stage 2: Swappable vision rubric evaluation inside a single `score_photos()` boundary.
+
+Sends resized intake photos, OpenCLIP reference matches, optional rider disclosure,
+and Moto Reloaded's photo-coverage & damage-disclosure rubric to Azure OpenAI
+(`gpt-4.1`), returning structured JSON pass/fail checklist items.
+"""
+
+from __future__ import annotations
+
+import base64
+import io
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+from dotenv import load_dotenv
+from openai import AzureOpenAI
+from PIL import Image, ImageOps
+
+load_dotenv()
+
+_VALID_CATEGORIES = {"photo_coverage", "damage_disclosure"}
+_VALID_SEVERITIES = {"none", "minor", "major", "hard_gate"}
+_VALID_MATERIAL_GROUPS = {"leather", "textile", "denim_aramid", "unknown"}
+_VALID_CE_LABELS = {"none", "A", "AA", "AAA", "illegible"}
+
+_SYSTEM_PROMPT = """\
+You are Moto Reloaded's store intake photo-coverage and damage-disclosure assistant for motorcycle jackets and pants ONLY (never helmets).
+
+NON-NEGOTIABLE COMPLIANCE RULES:
+1. WORDING ONLY: Use "photo coverage" and "damage disclosure" wording ONLY. NEVER claim, imply, or state that this tool or Moto Reloaded assesses, certifies, tests, or guarantees safety or protective performance.
+2. PRIVACY: NEVER identify, name, or describe any person or face if inadvertently visible in a photo.
+3. FIBRES & DISCLOSURE LIMIT: Garment fibres cannot be judged visually from photos alone; report composition ONLY from legible label photos, otherwise return "not determinable".
+4. NORTH AMERICA CE-LABEL NEUTRALITY: EN 17092 CE labels (A, AA, AAA) are European and NOT required in North America. Absence of a CE label ("none") tells you NOTHING and MUST NEVER fail a checklist item or be treated as a defect. However, if a label photo is blurry or out-of-focus so text cannot be read, treat that blurred label photo as a missing/illegible label photo ("photo_coverage" failure).
+5. HARD GATE DETECTION (NEVER RECOMMEND BUYING COMPROMISED GEAR):
+   - crash_evident: Visible slide marks, road rash, melted/abraded impact zones, or crash damage.
+   - contamination_evident: Visible heavy oil, fuel, chemical, mold, or unsanitary biological contamination.
+   - zone1_breach_or_repair: ANY visible tear, hole, split seam, through-abrasion, patch, or repair inside a Zone 1 area.
+6. GARMENT-SPECIFIC ZONE 1 MAPPING:
+   - JACKET Zone 1: (1) Left shoulder, (2) Right shoulder, (3) Left elbow & forearm, (4) Right elbow & forearm, (5) Upper back.
+   - PANTS Zone 1: (1) Left hip & outer thigh, (2) Right hip & outer thigh, (3) Left knee, (4) Right knee, (5) Seat.
+   - CRITICAL PANTS EXCEPTION: Normal sitting sheen/gloss on the seat of motorcycle pants with NO fibre wear or damage is Zone 2 wear, NOT a Zone 1 scuff or breach.
+7. DETAIL PRIORITIES: Inspect stitching, yarn integrity, seams, zippers/snaps/hardware, interior lining/protective-layer placement, fading, Zone 2/3 wear, and coin-for-scale defect close-ups if provided.
+8. CONTRADICTION CHECK: Compare the rider's declared disclosure (crash history, usage level, notes) against what is visible in the photos. Set contradiction_flagged=true with a concise contradiction_reason if the photos clearly contradict the rider's disclosure (for example, rider declared no crash or light use while photos show crash abrasion, heavy fading/wear, or Zone 1 repair).
+
+Return ONLY a valid JSON object with this exact schema:
+{
+  "checklist": [
+    {
+      "key": "exterior_angles_complete",
+      "category": "photo_coverage",
+      "label": "Exterior Angles Coverage",
+      "passed": true,
+      "severity": "none",
+      "reason": "Short factual observation."
+    },
+    {
+      "key": "inside_lining_visible",
+      "category": "photo_coverage",
+      "label": "Inside Lining & Pockets Coverage",
+      "passed": true,
+      "severity": "none",
+      "reason": "Short factual observation."
+    },
+    {
+      "key": "labels_sharp_legible",
+      "category": "photo_coverage",
+      "label": "Label Close-Up Sharpness & Legibility",
+      "passed": true,
+      "severity": "none",
+      "reason": "Short factual observation (do not fail for absent NA CE label; fail if label photo is blurry or missing)."
+    },
+    {
+      "key": "photo_sharpness_framing",
+      "category": "photo_coverage",
+      "label": "Photo Sharpness & Framing",
+      "passed": true,
+      "severity": "none",
+      "reason": "Short factual observation."
+    },
+    {
+      "key": "zone1_areas_visible",
+      "category": "photo_coverage",
+      "label": "Zone 1 Areas Visible",
+      "passed": true,
+      "severity": "none",
+      "reason": "Short factual observation referencing garment-specific Zone 1 areas."
+    },
+    {
+      "key": "no_crash_evidence",
+      "category": "damage_disclosure",
+      "label": "No Visible Crash / Slide Damage",
+      "passed": true,
+      "severity": "none",
+      "reason": "Short factual observation. Use severity='hard_gate' if failed."
+    },
+    {
+      "key": "no_contamination",
+      "category": "damage_disclosure",
+      "label": "No Visible Contamination",
+      "passed": true,
+      "severity": "none",
+      "reason": "Short factual observation. Use severity='hard_gate' if failed."
+    },
+    {
+      "key": "zone1_integrity",
+      "category": "damage_disclosure",
+      "label": "Zone 1 Integrity (No Breach or Repair)",
+      "passed": true,
+      "severity": "none",
+      "reason": "Short factual observation. Use severity='hard_gate' for Zone 1 breach/repair; 'minor' for light surface scuff only; remember pants seat sitting sheen with no fibre wear is Zone 2, not Zone 1."
+    },
+    {
+      "key": "stitching_seams_intact",
+      "category": "damage_disclosure",
+      "label": "Stitching, Yarn & Seam Integrity",
+      "passed": true,
+      "severity": "none",
+      "reason": "Short factual observation."
+    },
+    {
+      "key": "hardware_zippers_condition",
+      "category": "damage_disclosure",
+      "label": "Zippers, Snaps & Hardware Condition",
+      "passed": true,
+      "severity": "none",
+      "reason": "Short factual observation."
+    },
+    {
+      "key": "lining_interior_condition",
+      "category": "damage_disclosure",
+      "label": "Lining & Interior Condition",
+      "passed": true,
+      "severity": "none",
+      "reason": "Short factual observation."
+    },
+    {
+      "key": "zone2_3_wear_fading",
+      "category": "damage_disclosure",
+      "label": "Zone 2/3 Wear & Fading",
+      "passed": true,
+      "severity": "none",
+      "reason": "Short factual observation."
+    }
+  ],
+  "extracted_labels": {
+    "brand": "Brand name or 'Unknown'",
+    "size": "Size or 'Unknown'",
+    "ce_label": "none | A | AA | AAA | illegible",
+    "composition": "Exact legible fibre percentages or 'not determinable'",
+    "material_group": "leather | textile | denim_aramid | unknown"
+  },
+  "hard_gate_flags": {
+    "crash_evident": false,
+    "contamination_evident": false,
+    "zone1_breach_or_repair": false
+  },
+  "contradiction_flagged": false,
+  "contradiction_reason": null,
+  "summary": "2-sentence factual summary of photo coverage and visible damage disclosure for store staff."
+}
+
+Severity values MUST be one of: "none", "minor", "major", "hard_gate".
+When passed=true, severity MUST be "none".
+"""
+
+
+# REFERENCES (no training):
+# - Model is pretrained and frozen for inference only (model.eval(), torch.no_grad(),
+#   no optimizer, no backward pass, no fine-tuning).
+#   Source: OpenCLIP repo (https://github.com/mlfoundations/open_clip) & model card (https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K)
+# - Embeddings are only stored and compared with cosine similarity (lookup, not training).
+#   Source: OpenCLIP repo (https://github.com/mlfoundations/open_clip) & Participant Agreement v2.0 ("Don't train or fine-tune a model on the photo set")
+# - Photos sent to the scoring API go to Azure OpenAI, which does not train on inputs.
+#   Source: Azure OpenAI Data, Privacy, and Security (https://learn.microsoft.com/en-us/azure/foundry/responsible-ai/openai/data-privacy)
+# - Challenge photos are never saved as training data.
+#   Source: Participant Agreement v2.0 ("Don't train or fine-tune a model on the photo set")
+def _encode_image_for_vision(image_path: str, angle: str) -> str:
+    """Resize an intake photo via Pillow and encode it as a base64 JPEG data URL."""
+    max_edge = 1536 if angle in {"labels", "defect"} else 1024
+    jpeg_quality = 88 if angle in {"labels", "defect"} else 85
+
+    with Image.open(image_path) as img:
+        rgb = ImageOps.exif_transpose(img).convert("RGB")
+        rgb.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        rgb.save(buf, format="JPEG", quality=jpeg_quality, optimize=True)
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{b64}"
+
+
+def _parse_matched_refs(raw_refs: Any) -> list[dict[str, Any]]:
+    if isinstance(raw_refs, str):
+        try:
+            parsed = json.loads(raw_refs)
+            return parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
+    if isinstance(raw_refs, list):
+        return [r for r in raw_refs if isinstance(r, dict)]
+    return []
+
+
+def _normalize_vision_response(raw: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize structured JSON returned by the vision model."""
+    checklist: list[dict[str, Any]] = []
+    for item in raw.get("checklist") or []:
+        if not isinstance(item, dict):
+            continue
+        category = str(item.get("category", "damage_disclosure")).strip().lower()
+        if category not in _VALID_CATEGORIES:
+            category = "damage_disclosure"
+        passed = bool(item.get("passed", False))
+        severity = str(item.get("severity", "none")).strip().lower()
+        if severity not in _VALID_SEVERITIES:
+            severity = "none" if passed else "minor"
+        if passed:
+            severity = "none"
+        elif severity == "none":
+            severity = "minor"
+
+        checklist.append(
+            {
+                "key": str(item.get("key", f"item_{len(checklist) + 1}")).strip(),
+                "category": category,
+                "label": str(item.get("label", "Checklist Item")).strip(),
+                "passed": passed,
+                "severity": severity,
+                "reason": str(item.get("reason", "")).strip() or "Observed during photo review.",
+            }
+        )
+
+    raw_labels = raw.get("extracted_labels") if isinstance(raw.get("extracted_labels"), dict) else {}
+    ce_val = str(raw_labels.get("ce_label", "none") or "none").strip()
+    if ce_val.upper() in {"A", "AA", "AAA"}:
+        ce_val = ce_val.upper()
+    elif ce_val.lower() in {"none", "illegible"}:
+        ce_val = ce_val.lower()
+    else:
+        ce_val = "none"
+
+    mat_group = str(raw_labels.get("material_group", "unknown") or "unknown").strip().lower()
+    if mat_group not in _VALID_MATERIAL_GROUPS:
+        if "leather" in mat_group:
+            mat_group = "leather"
+        elif "denim" in mat_group or "aramid" in mat_group or "kevlar" in mat_group:
+            mat_group = "denim_aramid"
+        elif "textile" in mat_group or "poly" in mat_group or "nylon" in mat_group or "cordura" in mat_group:
+            mat_group = "textile"
+        else:
+            mat_group = "unknown"
+
+    extracted_labels = {
+        "brand": str(raw_labels.get("brand") or "Unknown").strip(),
+        "size": str(raw_labels.get("size") or "Unknown").strip(),
+        "ce_label": ce_val,
+        "composition": str(raw_labels.get("composition") or "not determinable").strip(),
+        "material_group": mat_group,
+    }
+
+    raw_flags = raw.get("hard_gate_flags") if isinstance(raw.get("hard_gate_flags"), dict) else {}
+    hard_gate_flags = {
+        "crash_evident": bool(raw_flags.get("crash_evident", False)),
+        "contamination_evident": bool(raw_flags.get("contamination_evident", False)),
+        "zone1_breach_or_repair": bool(raw_flags.get("zone1_breach_or_repair", False)),
+    }
+
+    contradiction_flagged = bool(raw.get("contradiction_flagged", False))
+    raw_reason = raw.get("contradiction_reason")
+    contradiction_reason = (
+        str(raw_reason).strip() if contradiction_flagged and raw_reason else None
+    )
+
+    summary = str(raw.get("summary") or "").strip()
+    if not summary:
+        summary = "Photo coverage and visible damage disclosure review completed for store staff inspection."
+
+    return {
+        "checklist": checklist,
+        "extracted_labels": extracted_labels,
+        "hard_gate_flags": hard_gate_flags,
+        "contradiction_flagged": contradiction_flagged,
+        "contradiction_reason": contradiction_reason,
+        "summary": summary,
+    }
+
+
+def _empty_photos_fallback(garment_type: str) -> dict[str, Any]:
+    """Return a clean structured response when no readable photos were supplied."""
+    return {
+        "checklist": [
+            {
+                "key": "exterior_angles_complete",
+                "category": "photo_coverage",
+                "label": "Exterior Angles Coverage",
+                "passed": False,
+                "severity": "major",
+                "reason": "No readable garment photos were provided for photo coverage review.",
+            },
+            {
+                "key": "inside_lining_visible",
+                "category": "photo_coverage",
+                "label": "Inside Lining & Pockets Coverage",
+                "passed": False,
+                "severity": "major",
+                "reason": "Inside lining photo is missing.",
+            },
+            {
+                "key": "labels_sharp_legible",
+                "category": "photo_coverage",
+                "label": "Label Close-Up Sharpness & Legibility",
+                "passed": False,
+                "severity": "major",
+                "reason": "Label close-up photo is missing.",
+            },
+        ],
+        "extracted_labels": {
+            "brand": "Unknown",
+            "size": "Unknown",
+            "ce_label": "none",
+            "composition": "not determinable",
+            "material_group": "unknown",
+        },
+        "hard_gate_flags": {
+            "crash_evident": False,
+            "contamination_evident": False,
+            "zone1_breach_or_repair": False,
+        },
+        "contradiction_flagged": False,
+        "contradiction_reason": None,
+        "summary": f"No readable {garment_type} photos were available for photo coverage and damage disclosure review.",
+    }
+
+
+# REFERENCES (no training):
+# - Model is pretrained and frozen for inference only (model.eval(), torch.no_grad(),
+#   no optimizer, no backward pass, no fine-tuning).
+#   Source: OpenCLIP repo (https://github.com/mlfoundations/open_clip) & model card (https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K)
+# - Embeddings are only stored and compared with cosine similarity (lookup, not training).
+#   Source: OpenCLIP repo (https://github.com/mlfoundations/open_clip) & Participant Agreement v2.0 ("Don't train or fine-tune a model on the photo set")
+# - Photos sent to the scoring API go to Azure OpenAI, which does not train on inputs.
+#   Source: Azure OpenAI Data, Privacy, and Security (https://learn.microsoft.com/en-us/azure/foundry/responsible-ai/openai/data-privacy)
+# - Challenge photos are never saved as training data.
+#   Source: Participant Agreement v2.0 ("Don't train or fine-tune a model on the photo set")
+def score_photos(
+    photos: list[dict[str, Any]],
+    garment_type: str,
+    disclosure: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Evaluate intake photos against Moto Reloaded's rubric via Azure OpenAI (swappable provider boundary)."""
+    load_dotenv()
+
+    normalized_garment = (garment_type or "jacket").strip().lower()
+    if normalized_garment not in {"jacket", "pants"}:
+        normalized_garment = "jacket"
+
+    zone1_desc = (
+        "Left shoulder, Right shoulder, Left elbow & forearm, Right elbow & forearm, Upper back."
+        if normalized_garment == "jacket"
+        else (
+            "Left hip & outer thigh, Right hip & outer thigh, Left knee, Right knee, Seat "
+            "(IMPORTANT: normal sitting sheen on pants seat without fibre wear is Zone 2 wear, NOT Zone 1)."
+        )
+    )
+
+    user_content: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": (
+                f"Garment Type: {normalized_garment.upper()}\n"
+                f"Zone 1 Areas: {zone1_desc}\n"
+                f"Rider Disclosure: {json.dumps(disclosure or {}, ensure_ascii=False)}\n"
+                "Below are the captured intake photos along with their Stage-1 OpenCLIP angle verification "
+                "and closest reference matches. Evaluate every photo coverage and damage disclosure item strictly."
+            ),
+        }
+    ]
+
+    attached_count = 0
+    for idx, photo in enumerate(photos or [], start=1):
+        filepath = photo.get("filepath") or photo.get("path") or photo.get("file_path")
+        if not filepath or not Path(str(filepath)).exists():
+            continue
+
+        angle = str(photo.get("angle", "unknown")).strip().lower()
+        predicted = photo.get("clip_predicted_angle") or photo.get("predicted_angle") or "unknown"
+        confidence = photo.get("clip_confidence")
+        if confidence is None:
+            confidence = photo.get("expected_similarity", 0.0)
+        angle_ok = photo.get("angle_ok", True)
+        matched_refs = _parse_matched_refs(
+            photo.get("clip_matched_refs") if "clip_matched_refs" in photo else photo.get("matched_references")
+        )
+        ref_summary = ", ".join(
+            f"{r.get('item_id', '?')}:{r.get('detail_tag', r.get('angle', '?'))} ({r.get('similarity', 0):.2f})"
+            for r in matched_refs[:3]
+        ) or "none"
+
+        data_url = _encode_image_for_vision(str(filepath), angle)
+        user_content.append(
+            {
+                "type": "text",
+                "text": (
+                    f"Photo #{idx} — Requested slot: '{angle}' | "
+                    f"OpenCLIP predicted: '{predicted}' (sim={float(confidence):.2f}, angle_ok={bool(angle_ok)}) | "
+                    f"Closest references: {ref_summary}"
+                ),
+            }
+        )
+        user_content.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": data_url,
+                    "detail": "high" if angle in {"labels", "defect"} else "auto",
+                },
+            }
+        )
+        attached_count += 1
+
+    if attached_count == 0:
+        return _empty_photos_fallback(normalized_garment)
+
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    api_key = os.getenv("AZURE_OPENAI_API_KEY")
+    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+    deployment = os.getenv("AZURE_OPENAI_VISION_DEPLOYMENT", "gpt-4.1")
+
+    if not endpoint or not api_key:
+        raise RuntimeError(
+            "Missing AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_KEY environment variables."
+        )
+
+    client = AzureOpenAI(
+        azure_endpoint=endpoint,
+        api_key=api_key,
+        api_version=api_version,
+    )
+
+    response = client.chat.completions.create(
+        model=deployment,
+        messages=[
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.1,
+        max_tokens=1800,
+    )
+
+    content = response.choices[0].message.content or "{}"
+    parsed = json.loads(content)
+    return _normalize_vision_response(parsed)

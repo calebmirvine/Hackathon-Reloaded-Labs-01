@@ -1,0 +1,32 @@
+# Created by Caleb M. Irvine for use by Moto Reloaded
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets & local OS files
+.env
+.DS_Store
+
+# Confidential Moto Reloaded Challenge Materials (do NOT push to git)
+data/
+.agents/context/*.docx
+.agents/context/*.xlsx
+refs.npy
+refs_meta.json
+*.npy
+
+# Local DB / uploads / vector DB / runtime artifacts
+chroma_db/
+*.db
+*.sqlite
+*.sqlite3
+uploads/
+exports/

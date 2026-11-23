@@ -33,7 +33,9 @@
 
 ## 3. Cloud & Development Tooling
 
-- **Azure CLI (`az`):** Used to provision the `rg-motoreloaded` resource group and `aoai-motoreloaded-rl01` Azure OpenAI resource in `eastus2`.
+- **Azure CLI (`az`) & Azure Container Apps:** Used to provision `rg-motoreloaded`, `aoai-motoreloaded-rl01` (Azure OpenAI), and the scale-to-zero `ca-motoreloaded-intake` Consumption container app in `eastus2` (running CPU-only PyTorch with pre-downloaded frozen OpenCLIP weights, ephemeral `/tmp/moto-runtime/` storage, `gpt-4.1-mini` default live deployment, and Demo Mode / passcode credit guardrails).
+- **Docker & GitHub Container Registry (`ghcr.io`):** Multi-step `Dockerfile` + strict `.dockerignore` (excluding `data/`, `refs.npy`, `refs_meta.json`, `.env`, `.agents/`, `*.db`, and `uploads/`) built via Docker Desktop and GitHub Actions.
+- **GitHub Actions, GitHub CLI (`gh`), & GitHub Pages:** Automated offline `pytest` + confidentiality checks, container image publishing, Azure Container App rollouts (`.github/workflows/deploy-azure-container-app.yml`), and static portfolio showcase hosting (`docs/index.html` via `.github/workflows/deploy-pages.yml`).
 - **Git (Private Repository):** Version control with `.gitignore` excluding `data/`, `.env`, `refs.npy`, `refs_meta.json`, `*.npy`, local SQLite databases (`*.db`), `uploads/`, `exports/`, and confidential `.docx`/`.xlsx` files.
 - **AI Coding Assistant:** Used strictly for software architecture, code authoring, automated testing, and documentation cleanup. **No challenge photos (`data/`) are sent to coding assistants.**
 

@@ -68,6 +68,21 @@ const state = {
   // Workspace data
   settings: { ...DEFAULT_RUNTIME_SETTINGS },
   availableDeployments: ["gpt-4.1", "gpt-4.1-mini"],
+  publicConfig: {
+    score_mode: "live",
+    passcode_configured: false,
+    admin_write_protected: false,
+    live_scores_remaining_today: null,
+    max_live_scores_per_day: 0,
+    max_live_scores_per_hour: 0,
+  },
+  livePasscode: (() => {
+    try {
+      return sessionStorage.getItem("moto_live_passcode") || "";
+    } catch {
+      return "";
+    }
+  })(),
   diagnostics: null,
   latestTracePayload: null,
   auditTracePayload: null,
@@ -79,6 +94,15 @@ const state = {
 const els = {
   toast: document.getElementById("global-toast"),
   headerModelPill: document.getElementById("header-model-pill"),
+  portfolioModeBar: document.getElementById("portfolio-mode-bar"),
+  portfolioModePill: document.getElementById("portfolio-mode-pill"),
+  portfolioModeDesc: document.getElementById("portfolio-mode-desc"),
+  portfolioPasscodeForm: document.getElementById("portfolio-passcode-form"),
+  portfolioPasscodeInput: document.getElementById("portfolio-passcode-input"),
+  btnUnlockLive: document.getElementById("btn-unlock-live"),
+  btnLockLive: document.getElementById("btn-lock-live"),
+  adminLockBadge: document.getElementById("admin-lock-badge"),
+  card1SampleDrawer: document.getElementById("card1-sample-drawer"),
   tabs: document.querySelectorAll(".nav-tab"),
   panels: {
     intake: document.getElementById("panel-intake"),
@@ -326,6 +350,125 @@ function showToast(message, variant = "info", durationMs = 4200) {
       els.toast.classList.add("hidden");
     }, durationMs);
   }
+}
+
+function buildAuthHeaders(extra = {}) {
+  const headers = { ...extra };
+  if (state.livePasscode) {
+    headers["X-Live-Passcode"] = state.livePasscode;
+  }
+  return headers;
+}
+
+function setLivePasscode(value) {
+  state.livePasscode = String(value || "").trim();
+  try {
+    if (state.livePasscode) {
+      sessionStorage.setItem("moto_live_passcode", state.livePasscode);
+    } else {
+      sessionStorage.removeItem("moto_live_passcode");
+    }
+  } catch {
+    // Ignore storage quota / private-browsing errors
+  }
+}
+
+async function loadPublicConfig() {
+  try {
+    const cfg = await apiJson("/config/public");
+    if (cfg && typeof cfg === "object") {
+      state.publicConfig = { ...state.publicConfig, ...cfg };
+    }
+  } catch (err) {
+    console.warn("Could not load public runtime config:", err);
+  }
+  renderPortfolioModeBar();
+}
+
+function renderPortfolioModeBar() {
+  const cfg = state.publicConfig || {};
+  const mode = cfg.score_mode || "live";
+  const isUnlocked = Boolean(state.livePasscode);
+  const adminLocked = Boolean(cfg.admin_write_protected) && !isUnlocked;
+
+  if (els.adminLockBadge) {
+    els.adminLockBadge.classList.toggle("hidden", !adminLocked);
+  }
+
+  if (mode === "live") {
+    els.portfolioModeBar.classList.add("hidden");
+    return;
+  }
+
+  els.portfolioModeBar.classList.remove("hidden");
+
+  const remaining = cfg.live_scores_remaining_today;
+  const maxDay = cfg.max_live_scores_per_day;
+  const quotaText =
+    maxDay > 0 && remaining !== null && remaining !== undefined
+      ? ` (${remaining}/${maxDay} live calls left today)`
+      : "";
+
+  if (mode === "demo") {
+    els.portfolioModePill.className = "pill pill-review";
+    els.portfolioModePill.textContent = "Portfolio Demo Mode · $0 API Spend";
+    els.portfolioModeDesc.textContent =
+      "Real Stage-1 OpenCLIP angle checks and 0–100 deterministic scoring are active. Live Azure OpenAI calls are disabled in this showcase.";
+    els.portfolioPasscodeForm.classList.add("hidden");
+    return;
+  }
+
+  els.portfolioPasscodeForm.classList.remove("hidden");
+  if (isUnlocked) {
+    els.portfolioModePill.className = "pill pill-approve";
+    els.portfolioModePill.textContent = `Live Azure AI Unlocked · ${state.settings.vision_deployment || "gpt-4.1-mini"}`;
+    els.portfolioModeDesc.textContent = `Live Azure OpenAI vision rubric inspection is unlocked for this browser tab${quotaText}.`;
+    els.portfolioPasscodeInput.classList.add("hidden");
+    els.btnUnlockLive.classList.add("hidden");
+    els.btnLockLive.classList.remove("hidden");
+  } else {
+    els.portfolioModePill.className = "pill pill-review";
+    els.portfolioModePill.textContent = "Demo Mode · $0 API Spend";
+    els.portfolioModeDesc.textContent =
+      `Real Stage-1 OpenCLIP angle verification & 0–100 scoring run free. Enter the access passcode to unlock live Azure OpenAI vision inspection${quotaText}.`;
+    els.portfolioPasscodeInput.classList.remove("hidden");
+    els.btnUnlockLive.classList.remove("hidden");
+    els.btnLockLive.classList.add("hidden");
+  }
+}
+
+async function handleUnlockPasscode(evt) {
+  evt.preventDefault();
+  const candidate = els.portfolioPasscodeInput.value.trim();
+  if (!candidate) {
+    showToast("Enter the live access passcode first.", "warn", 3000);
+    return;
+  }
+
+  els.btnUnlockLive.disabled = true;
+  try {
+    const res = await apiJson("/auth/verify-passcode", {
+      method: "POST",
+      headers: { "X-Live-Passcode": candidate },
+    });
+    setLivePasscode(candidate);
+    els.portfolioPasscodeInput.value = "";
+    if (res && typeof res === "object") {
+      state.publicConfig = { ...state.publicConfig, ...res };
+    }
+    renderPortfolioModeBar();
+    showToast("Live Azure OpenAI vision scoring unlocked for this session.", "success", 4200);
+  } catch (err) {
+    showToast(`Could not unlock Live AI: ${err.message}`, "error", 5500);
+  } finally {
+    els.btnUnlockLive.disabled = false;
+  }
+}
+
+function handleLockPasscode() {
+  setLivePasscode("");
+  renderPortfolioModeBar();
+  showToast("Returned to Portfolio Demo Mode ($0 API spend).", "info", 3200);
 }
 
 async function apiJson(url, options = {}) {
@@ -1013,7 +1156,7 @@ async function triggerScore(sessionId, { useCounterDisclosure = true } = {}) {
     }
     const result = await apiJson("/score", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(body),
     });
 
@@ -1036,6 +1179,7 @@ async function triggerScore(sessionId, { useCounterDisclosure = true } = {}) {
 
     loadReviewQueue({ silent: true });
     loadSessionsLog({ silent: true });
+    loadPublicConfig();
   } catch (err) {
     state.isScoring = false;
     els.scoreLoading.classList.add("hidden");
@@ -1697,7 +1841,7 @@ async function handleSaveSettings(evt) {
 
     const data = await apiJson("/admin/settings", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
     });
 
@@ -1830,11 +1974,17 @@ async function loadDemoSamplesList() {
     els.sandboxSampleSelect.innerHTML = optionsHtml;
     els.btnCard1LoadSample.disabled = items.length === 0;
     els.btnSandboxRun.disabled = items.length === 0;
+    if (els.card1SampleDrawer) {
+      els.card1SampleDrawer.classList.toggle("hidden", items.length === 0);
+    }
   } catch (err) {
     els.card1SampleSelect.innerHTML = `<option value="">Samples unavailable</option>`;
     els.sandboxSampleSelect.innerHTML = `<option value="">Samples unavailable</option>`;
     els.btnCard1LoadSample.disabled = true;
     els.btnSandboxRun.disabled = true;
+    if (els.card1SampleDrawer) {
+      els.card1SampleDrawer.classList.add("hidden");
+    }
     console.warn("Could not load demo samples:", err);
   }
 }
@@ -2056,6 +2206,10 @@ function bindEvents() {
     copyText(prettyJsonText(t.raw_response), "Latest raw Frontier JSON copied to clipboard.");
   });
 
+  // Portfolio Demo Mode passcode form
+  els.portfolioPasscodeForm.addEventListener("submit", handleUnlockPasscode);
+  els.btnLockLive.addEventListener("click", handleLockPasscode);
+
   // Lightbox
   els.btnCloseLightbox.addEventListener("click", () => els.lightbox.close());
   els.lightbox.addEventListener("click", (evt) => {
@@ -2067,6 +2221,7 @@ function init() {
   initAngleDeck();
   bindEvents();
   setWizardStep(1);
+  loadPublicConfig();
   loadRuntimeSettings({ silent: true });
   loadDemoSamplesList();
   loadReviewQueue({ silent: true });

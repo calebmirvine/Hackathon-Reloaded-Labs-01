@@ -249,11 +249,20 @@ def api_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://aoai-motoreloaded-rl01.openai.azure.com/")
     monkeypatch.setenv("AZURE_OPENAI_VISION_DEPLOYMENT", "gpt-4.1")
     monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("SCORE_MODE", raising=False)
+    monkeypatch.delenv("LIVE_SCORE_PASSCODE", raising=False)
+    monkeypatch.delenv("ALLOW_PUBLIC_ADMIN_WRITE", raising=False)
+    monkeypatch.delenv("MAX_LIVE_SCORES_PER_HOUR", raising=False)
+    monkeypatch.delenv("MAX_LIVE_SCORES_PER_DAY", raising=False)
+    monkeypatch.delenv("MAX_UPLOAD_BYTES", raising=False)
 
     import app.clip_matcher as clip_matcher
     import app.db as db_mod
+    import app.guardrails as guardrails_mod
     import app.main as main_mod
     import app.vision_scorer as vision_scorer
+
+    guardrails_mod.rate_limiter.reset()
 
     created_sessions: list[str] = []
 
@@ -725,3 +734,160 @@ def test_mobile_category_card_inline_viewfinder_and_dom_integrity() -> None:
         js_ids = set(re.findall(r'getElementById\("([^"]+)"\)', js_src))
         missing = sorted(js_ids - html_ids)
         assert not missing, f"Missing DOM IDs referenced by {js_name} in {html_name}: {missing}"
+
+
+def test_demo_mode_scores_without_calling_azure_and_enforces_hard_gate(
+    api_env: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SCORE_MODE=demo_with_passcode runs Demo Mode at $0 spend without calling Azure and enforces Hard Gate."""
+    client: TestClient = api_env["client"]
+    monkeypatch.setenv("SCORE_MODE", "demo_with_passcode")
+    monkeypatch.setenv("LIVE_SCORE_PASSCODE", "CANARY_LIVE_PASSCODE_777")
+    monkeypatch.setenv("MAX_LIVE_SCORES_PER_DAY", "30")
+    monkeypatch.setenv("MAX_LIVE_SCORES_PER_HOUR", "10")
+
+    import app.main as main_mod
+    import app.vision_scorer as vision_scorer_mod
+
+    live_calls = {"count": 0}
+
+    def fail_if_live_called(*args, **kwargs):
+        live_calls["count"] += 1
+        raise AssertionError("Live Azure scorer must NOT be called in Demo Mode!")
+
+    monkeypatch.setattr(main_mod, "score_photos", fail_if_live_called)
+    monkeypatch.setattr(vision_scorer_mod, "AzureOpenAI", fail_if_live_called)
+
+    # Clean intake in Demo Mode (no passcode header)
+    sid = client.post("/sessions", json={"garment_type": "jacket"}).json()["session_id"]
+    api_env["created_sessions"].append(sid)
+    _upload_all_required_angles(client, sid)
+    resp = client.post("/score", json={"session_id": sid, "disclosure": {"crash": False, "usage": "light"}})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert live_calls["count"] == 0
+    assert 85 <= data["total_score"] <= 100
+    assert data["decision"] == "auto_approved"
+    assert "Portfolio Demo Mode" in data["agent_trace"]["provider"]
+    assert data["agent_trace"]["usage"]["total_tokens"] == 0
+
+    # Declared crash in Demo Mode still triggers Hard Compliance Gate <= 49
+    sid_crash = client.post("/sessions", json={"garment_type": "jacket"}).json()["session_id"]
+    api_env["created_sessions"].append(sid_crash)
+    _upload_all_required_angles(client, sid_crash)
+    crash_resp = client.post(
+        "/score",
+        json={"session_id": sid_crash, "disclosure": {"crash": True, "usage": "moderate"}},
+    )
+    assert crash_resp.status_code == 200, crash_resp.text
+    crash_data = crash_resp.json()
+    assert live_calls["count"] == 0
+    assert crash_data["total_score"] <= 49
+    assert crash_data["decision"] == "rejected_upcycle"
+    assert crash_data["hard_gate_triggered"] is True
+    assert crash_data["buy_in_recommended"] is False
+
+
+def test_passcode_unlock_rate_limits_and_zero_secret_leak(
+    api_env: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Passcode unlocks live scoring, enforces hourly/daily caps, and never leaks secrets."""
+    client: TestClient = api_env["client"]
+    canary_pass = "CANARY_LIVE_PASSCODE_998877"
+    monkeypatch.setenv("SCORE_MODE", "demo_with_passcode")
+    monkeypatch.setenv("LIVE_SCORE_PASSCODE", canary_pass)
+    monkeypatch.setenv("MAX_LIVE_SCORES_PER_HOUR", "2")
+    monkeypatch.setenv("MAX_LIVE_SCORES_PER_DAY", "3")
+
+    # Wrong passcode rejected with 403
+    bad_verify = client.post("/auth/verify-passcode", headers={"X-Live-Passcode": "wrong-pass"})
+    assert bad_verify.status_code == 403
+
+    # Valid passcode accepted
+    ok_verify = client.post("/auth/verify-passcode", headers={"X-Live-Passcode": canary_pass})
+    assert ok_verify.status_code == 200, ok_verify.text
+    assert ok_verify.json()["unlocked"] is True
+
+    sid = client.post("/sessions", json={"garment_type": "jacket"}).json()["session_id"]
+    api_env["created_sessions"].append(sid)
+    _upload_all_required_angles(client, sid)
+
+    # Wrong passcode on /score -> 403
+    bad_score = client.post(
+        "/score",
+        json={"session_id": sid},
+        headers={"X-Live-Passcode": "nope"},
+    )
+    assert bad_score.status_code == 403
+
+    # Valid passcode succeeds up to hourly limit (2), then 3rd call hits 429
+    r1 = client.post("/score", json={"session_id": sid}, headers={"X-Live-Passcode": canary_pass})
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["agent_trace"]["provider"] == "Azure OpenAI"
+
+    r2 = client.post("/score", json={"session_id": sid}, headers={"X-Live-Passcode": canary_pass})
+    assert r2.status_code == 200, r2.text
+
+    r3 = client.post("/score", json={"session_id": sid}, headers={"X-Live-Passcode": canary_pass})
+    assert r3.status_code == 429
+    assert "Retry-After" in r3.headers
+
+    # Canary passcode and API key must NEVER appear in public or diagnostic endpoints
+    pub = client.get("/config/public").json()
+    diag = client.get("/admin/diagnostics").json()
+    status_data = client.get(f"/status/{sid}").json()
+    for name, payload in (("/config/public", pub), ("/admin/diagnostics", diag), ("/status", status_data)):
+        blob = json.dumps(payload)
+        assert canary_pass not in blob, f"Passcode leaked in {name}!"
+        assert CANARY_API_KEY not in blob, f"API key leaked in {name}!"
+    assert pub["live_scores_remaining_today"] == 1
+
+
+def test_admin_write_lock_and_upload_size_limit(
+    api_env: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ALLOW_PUBLIC_ADMIN_WRITE=false locks POST /admin/settings; MAX_UPLOAD_BYTES returns 413."""
+    client: TestClient = api_env["client"]
+    canary_pass = "ADMIN_UNLOCK_PASS_42"
+    monkeypatch.setenv("ALLOW_PUBLIC_ADMIN_WRITE", "false")
+    monkeypatch.setenv("LIVE_SCORE_PASSCODE", canary_pass)
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "128")
+
+    # Without passcode -> 403
+    locked = client.post("/admin/settings", json={"poll_interval_ms": 3000})
+    assert locked.status_code == 403
+
+    # With valid passcode -> 200
+    unlocked = client.post(
+        "/admin/settings",
+        json={"poll_interval_ms": 3000},
+        headers={"X-Live-Passcode": canary_pass},
+    )
+    assert unlocked.status_code == 200, unlocked.text
+    assert unlocked.json()["settings"]["poll_interval_ms"] == 3000
+
+    # Oversized upload -> 413
+    sid = client.post("/sessions", json={"garment_type": "jacket"}).json()["session_id"]
+    api_env["created_sessions"].append(sid)
+    oversized = client.post(
+        "/upload",
+        data={"session_id": sid, "angle": "front"},
+        files={"file": ("big.jpg", _make_jpeg_bytes(), "image/jpeg")},
+    )
+    assert oversized.status_code == 413
+
+
+def test_dockerignore_excludes_confidential_files_and_docs_compliance() -> None:
+    """Verify .dockerignore excludes confidential data/secrets and docs/index.html obeys wording rules."""
+    repo_root = Path(__file__).resolve().parent.parent
+    dockerignore = (repo_root / ".dockerignore").read_text(encoding="utf-8")
+    for required_pattern in ("data/", "refs.npy", "refs_meta.json", ".env", ".agents/", "*.db", "uploads/"):
+        assert required_pattern in dockerignore, f"Missing '{required_pattern}' in .dockerignore"
+
+    docs_index = (repo_root / "docs" / "index.html").read_text(encoding="utf-8")
+    docs_lower = docs_index.lower()
+    assert "photo coverage" in docs_lower
+    assert "damage disclosure" in docs_lower
+    assert not PERSONAL_NAMES_RE.search(docs_index)
+    assert not re.search(r"\berp\b", docs_index, re.IGNORECASE)
+

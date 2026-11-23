@@ -1,0 +1,317 @@
+<!-- # Created by Caleb M. Irvine for use by Moto Reloaded -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Moto Reloaded · Gear Intake Checker — Live Portfolio Showcase</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    :root {
+      --bg-canvas: #EFE6D8;
+      --bg-surface: #FBF7F1;
+      --bg-elevated: #E7DDD0;
+      --ink: #1B1814;
+      --fg-secondary: #3A342C;
+      --fg-muted: #5C554B;
+      --accent: #7A3228;
+      --approve-bg: #E5F6EA;
+      --approve-text: #0E5C2C;
+      --border: rgba(27, 24, 20, 0.16);
+      --border-strong: #7A7268;
+      --radius-md: 14px;
+      --radius-lg: 22px;
+      --shadow: 0 16px 40px rgba(27, 24, 20, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background-color: var(--bg-canvas);
+      background-image:
+        radial-gradient(900px 420px at 0% -8%, rgba(122, 50, 40, 0.10), transparent 62%),
+        radial-gradient(720px 380px at 100% 0%, rgba(27, 24, 20, 0.05), transparent 58%);
+      color: var(--ink);
+      line-height: 1.55;
+    }
+
+    .wrap {
+      max-width: 1020px;
+      margin: 0 auto;
+      padding: 2.25rem 1.4rem 3.5rem;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border-strong);
+      margin-bottom: 2rem;
+    }
+
+    .wordmark {
+      font-size: 0.98rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      background: var(--bg-elevated);
+      color: var(--ink);
+      border: 1px solid var(--border);
+    }
+
+    .pill-approve {
+      background: var(--approve-bg);
+      color: var(--approve-text);
+      border-color: rgba(14, 92, 44, 0.3);
+    }
+
+    .hero {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 2.2rem 2rem;
+      box-shadow: var(--shadow);
+      margin-bottom: 1.75rem;
+    }
+
+    .kicker {
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      margin: 0 0 0.85rem;
+      font-size: clamp(1.85rem, 4vw, 2.55rem);
+      line-height: 1.12;
+      letter-spacing: -0.03em;
+    }
+
+    .lead {
+      margin: 0 0 1.6rem;
+      font-size: 1.04rem;
+      color: var(--fg-secondary);
+      max-width: 70ch;
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.8rem;
+      align-items: center;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      padding: 0.8rem 1.35rem;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 0.96rem;
+      text-decoration: none;
+      transition: transform 140ms ease, opacity 140ms ease;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+
+    .btn-primary {
+      background: var(--ink);
+      color: var(--bg-surface);
+    }
+
+    .btn-secondary {
+      background: var(--bg-elevated);
+      color: var(--ink);
+      border: 1px solid var(--border-strong);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.1rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 1.35rem 1.3rem;
+    }
+
+    .card-num {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      display: block;
+      margin-bottom: 0.35rem;
+    }
+
+    h2 {
+      margin: 0 0 0.45rem;
+      font-size: 1.08rem;
+      letter-spacing: -0.02em;
+    }
+
+    .card p {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--fg-secondary);
+    }
+
+    .stack-bar {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 1.35rem 1.4rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+
+    .notice {
+      font-size: 0.84rem;
+      color: var(--fg-muted);
+      border-top: 1px solid var(--border);
+      padding-top: 1.25rem;
+    }
+
+    .notice strong { color: var(--ink); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top-bar">
+      <div class="wordmark">Moto Reloaded · Gear Intake Checker</div>
+      <span class="pill pill-approve">Live on Azure Container Apps · Inference-Only</span>
+    </header>
+
+    <section class="hero">
+      <div class="kicker">Reloaded Labs #01 · Store Intake &amp; Circular Upcycling Workflow</div>
+      <h1>Guided mobile photo capture &amp; 0–100 intake triage for motorcycle jackets and pants.</h1>
+      <p class="lead">
+        Built for Moto Reloaded's store buy-in counter. Scan a desktop QR code from any phone over HTTPS
+        to capture six required garment angles, verify framing locally with frozen pretrained OpenCLIP,
+        and produce a deterministic <strong>0–100 photo coverage + damage disclosure score</strong> that routes
+        compromised gear away from buy-in and toward circular upcycling and responsible retirement.
+      </p>
+
+      <div class="cta-row">
+        <a
+          id="live-app-link"
+          class="btn btn-primary"
+          href="https://ca-motoreloaded-intake.ashysmoke-22729be1.eastus2.azurecontainerapps.io"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Launch Live App (HTTPS) →
+        </a>
+        <a
+          class="btn btn-secondary"
+          href="https://ca-motoreloaded-intake.ashysmoke-22729be1.eastus2.azurecontainerapps.io/health"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Check API Health
+        </a>
+      </div>
+      <p style="margin: 0.9rem 0 0; font-size: 0.82rem; color: var(--fg-muted);">
+        Note: The container scales to zero when idle ($0 idle cost on Azure Container Apps) — the first request may take ~10–15 seconds to wake.
+        Public visitors run real Stage-1 OpenCLIP angle verification &amp; Demo Mode scoring at $0 API spend; live Azure OpenAI vision unlocks via passcode.
+      </p>
+    </section>
+
+    <section class="grid" aria-label="3-Stage Scoring Pipeline">
+      <article class="card">
+        <span class="card-num">STAGE 01 · LOCAL VISION</span>
+        <h2>Frozen OpenCLIP Angle Check</h2>
+        <p>
+          Pretrained <code>ViT-B-32</code> (<code>laion2b_s34b_b79k</code>) runs on CPU in frozen inference mode
+          (<code>model.eval()</code>, <code>torch.no_grad()</code>) to confirm each captured slot
+          (front, left, right, back, inside, labels) with zero training or fine-tuning.
+        </p>
+      </article>
+
+      <article class="card">
+        <span class="card-num">STAGE 02 · RUBRIC AUDIT</span>
+        <h2>Swappable Vision Rubric Boundary</h2>
+        <p>
+          An isolated <code>score_photos()</code> provider invokes zero-training Azure OpenAI
+          (<code>gpt-4.1-mini</code> / <code>gpt-4.1</code>) or Portfolio Demo Mode to return structured
+          pass/fail checklist JSON with observed reasons and full prompt/response observability.
+        </p>
+      </article>
+
+      <article class="card">
+        <span class="card-num">STAGE 03 · DETERMINISTIC SCORE</span>
+        <h2>0–100 Score &amp; Hard Compliance Gate</h2>
+        <p>
+          Pure Python scores <strong>photo coverage</strong> (0–50) + <strong>damage disclosure</strong> (0–50).
+          Declared/evident crashes, contamination, or Zone 1 breaches/repairs are hard-capped &le; 49,
+          declined for buy-in, and routed to circular upcycling &amp; new-gear trade-in.
+        </p>
+      </article>
+    </section>
+
+    <section class="stack-bar" aria-label="Architecture and Technology Stack">
+      <h2>Cloud Architecture &amp; Credit-Protected Deployment</h2>
+      <p style="margin: 0.25rem 0 0; font-size: 0.9rem; color: var(--fg-secondary);">
+        Single container on Azure Container Apps (1 vCPU / 2 GiB, scale-to-zero, CPU-only PyTorch, pre-baked OpenCLIP cache,
+        ephemeral SQLite + upload cleanup, passcode + hourly/daily live-API rate caps) built via GitHub Actions &amp; GHCR.
+      </p>
+      <div class="chips">
+        <span class="pill">FastAPI + Uvicorn</span>
+        <span class="pill">OpenCLIP ViT-B-32 (CPU)</span>
+        <span class="pill">Azure OpenAI gpt-4.1-mini</span>
+        <span class="pill">SQLite</span>
+        <span class="pill">Docker (Non-Root)</span>
+        <span class="pill">Azure Container Apps</span>
+        <span class="pill">GitHub Actions + GHCR</span>
+        <span class="pill">28-Column .xlsx Export</span>
+      </div>
+    </section>
+
+    <footer class="notice">
+      <p>
+        <strong>Photo Coverage &amp; Damage Disclosure Only:</strong> This application and Moto Reloaded do not assess,
+        certify, test, or guarantee protective performance. No models are trained or fine-tuned on challenge or user photographs,
+        and no confidential challenge photographs or reference embeddings are deployed in this public container.
+      </p>
+      <p style="margin-top: 0.5rem;">
+        Created by Caleb M. Irvine for use by Moto Reloaded.
+      </p>
+    </footer>
+  </div>
+</body>
+</html>

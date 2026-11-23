@@ -2151,6 +2151,52 @@ textarea {
   }
 }
 
+/* ==========================================================================
+   Portfolio Demo Mode & Live Passcode Bar (shown only when SCORE_MODE != live)
+   ========================================================================== */
+
+.portfolio-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem 1.25rem;
+  flex-wrap: wrap;
+  padding: 0.78rem 1.1rem;
+  margin-bottom: 1.1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.portfolio-mode-copy {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  flex: 1 1 320px;
+}
+
+.portfolio-mode-desc {
+  font-size: 0.84rem;
+  color: var(--fg-secondary);
+  line-height: 1.4;
+}
+
+.portfolio-passcode-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.portfolio-passcode-input {
+  width: 175px;
+  min-height: 36px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.85rem;
+}
+
 @media (forced-colors: active) {
   :root {
     --bg-canvas: Canvas;

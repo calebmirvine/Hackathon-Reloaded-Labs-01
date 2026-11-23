@@ -1,0 +1,106 @@
+# Created by Caleb M. Irvine for use by Moto Reloaded
+name: Build & Deploy Azure Container App
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "scripts/prefetch_clip.py"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - ".github/workflows/deploy-azure-container-app.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/moto-reloaded-intake
+
+jobs:
+  test:
+    name: Offline Tests & Confidentiality Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Confidentiality guard (ensure no challenge photos, refs, or .env are tracked)
+        run: |
+          if git ls-files | grep -E '(^data/|refs\.npy|refs_meta\.json|^\.env$|\.docx$|\.xlsx$|\.db$)'; then
+            echo "::error::Confidential challenge material or secret file detected in git tree!"
+            exit 1
+          fi
+          echo "Confidentiality check passed: zero restricted files tracked."
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install lightweight test dependencies (CPU-only offline test run)
+        run: |
+          uv pip install --system --no-cache \
+            fastapi uvicorn python-multipart numpy pillow openai python-dotenv pydantic "qrcode[pil]" openpyxl pytest httpx
+
+      - name: Run offline automated test suite
+        run: pytest -v
+
+  build-and-deploy:
+    name: Build CPU Image -> GHCR -> Azure Container App
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push CPU-only OpenCLIP image to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Azure Login
+        if: ${{ secrets.AZURE_CREDENTIALS != '' }}
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Update Azure Container App image
+        if: ${{ secrets.AZURE_CREDENTIALS != '' }}
+        run: |
+          RG="${{ vars.AZURE_RESOURCE_GROUP || 'rg-motoreloaded' }}"
+          APP="${{ vars.AZURE_CONTAINER_APP_NAME || 'ca-motoreloaded-intake' }}"
+          az extension add --name containerapp --upgrade -y
+          az containerapp ingress update \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --target-port 8000
+          az containerapp update \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --image "${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          FQDN=$(az containerapp show --name "$APP" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "Deployed live at: https://${FQDN}"

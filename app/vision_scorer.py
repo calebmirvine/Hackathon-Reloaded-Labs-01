@@ -366,6 +366,258 @@ def _empty_photos_fallback(
     }
 
 
+def _demo_rubric_evaluation(
+    photos: list[dict[str, Any]],
+    garment_type: str,
+    disclosure: dict[str, Any] | None = None,
+    *,
+    deployment: str = "gpt-4.1-mini",
+    api_version: str = "2024-12-01-preview",
+    endpoint_host: str | None = None,
+    temperature: float = 0.1,
+    max_tokens: int = 1800,
+) -> dict[str, Any]:
+    """Return a deterministic, zero-API-spend vision rubric simulation for Portfolio Demo Mode.
+
+    Evaluates actual captured angle coverage, Stage-1 OpenCLIP angle verification flags,
+    and rider disclosure inputs using strictly 'photo coverage' and 'damage disclosure'
+    wording, respecting North America CE-label neutrality and the Hard Compliance Gate.
+    """
+    normalized_garment = (garment_type or "jacket").strip().lower()
+    if normalized_garment not in {"jacket", "pants"}:
+        normalized_garment = "jacket"
+
+    disc = dict(disclosure or {})
+    crash_declared = bool(disc.get("crash"))
+    usage = str(disc.get("usage") or disc.get("exposure_band") or "moderate").strip().lower()
+    notes = str(disc.get("notes") or "").strip()
+
+    present_angles = {str(p.get("angle") or "").strip().lower() for p in (photos or [])}
+    exterior_required = {"front", "left", "right", "back"}
+    missing_exterior = sorted(exterior_required - present_angles)
+    has_inside = "inside" in present_angles
+    has_labels = "labels" in present_angles
+    has_defect = "defect" in present_angles
+    mismatched_angles = sorted(
+        {
+            str(p.get("angle") or "").strip().lower()
+            for p in (photos or [])
+            if p.get("angle_ok") is False
+        }
+    )
+
+    heavy_usage = usage == "heavy"
+    notes_lower = notes.lower()
+    notes_mention_contamination = any(
+        tok in notes_lower for tok in ("oil", "fuel", "gasoline", "chemical", "mold", "contaminated")
+    )
+    notes_mention_zone1_damage = any(
+        tok in notes_lower for tok in ("tear", "rip", "hole", "patch", "repaired", "road rash", "slide")
+    )
+
+    exterior_ok = len(missing_exterior) == 0
+    zone1_visible = exterior_ok and len(mismatched_angles) == 0
+
+    checklist: list[dict[str, Any]] = [
+        {
+            "key": "exterior_angles_complete",
+            "category": "photo_coverage",
+            "label": "Exterior Angles Coverage",
+            "passed": exterior_ok,
+            "severity": "none" if exterior_ok else "major",
+            "reason": (
+                "All 4 required exterior angles (front, left, right, back) were captured."
+                if exterior_ok
+                else f"Missing required exterior angle(s): {', '.join(missing_exterior)}."
+            ),
+        },
+        {
+            "key": "inside_lining_visible",
+            "category": "photo_coverage",
+            "label": "Inside Lining & Pockets Coverage",
+            "passed": has_inside,
+            "severity": "none" if has_inside else "major",
+            "reason": (
+                "Inside lining angle captured for interior inspection."
+                if has_inside
+                else "Inside lining photo is missing."
+            ),
+        },
+        {
+            "key": "labels_sharp_legible",
+            "category": "photo_coverage",
+            "label": "Label Close-Up Sharpness & Legibility",
+            "passed": has_labels,
+            "severity": "none" if has_labels else "major",
+            "reason": (
+                "Label close-up uploaded (Demo Mode does not run live OCR; unlock Live AI for label reading)."
+                if has_labels
+                else "Label close-up photo is missing."
+            ),
+        },
+        {
+            "key": "photo_sharpness_framing",
+            "category": "photo_coverage",
+            "label": "Photo Sharpness & Framing",
+            "passed": len(mismatched_angles) == 0,
+            "severity": "none" if len(mismatched_angles) == 0 else "minor",
+            "reason": (
+                "Stage-1 OpenCLIP angle verification matched all uploaded views."
+                if len(mismatched_angles) == 0
+                else f"Stage-1 OpenCLIP flagged angle framing warning on: {', '.join(mismatched_angles)}."
+            ),
+        },
+        {
+            "key": "zone1_areas_visible",
+            "category": "photo_coverage",
+            "label": "Zone 1 Areas Visible",
+            "passed": zone1_visible,
+            "severity": "none" if zone1_visible else "minor",
+            "reason": (
+                f"All primary {normalized_garment} Zone 1 regions are covered by the uploaded exterior set."
+                if zone1_visible
+                else f"Retake or complete exterior views so all {normalized_garment} Zone 1 areas are clearly visible."
+            ),
+        },
+        {
+            "key": "no_crash_evidence",
+            "category": "damage_disclosure",
+            "label": "No Visible Crash / Slide Damage",
+            "passed": not crash_declared,
+            "severity": "hard_gate" if crash_declared else "none",
+            "reason": (
+                "Rider disclosed prior crash involvement — Hard Compliance Gate triggered (declined for buy-in)."
+                if crash_declared
+                else "No crash history disclosed in Portfolio Demo Mode (unlock Live AI for pixel-level vision review)."
+            ),
+        },
+        {
+            "key": "no_contamination",
+            "category": "damage_disclosure",
+            "label": "No Visible Contamination",
+            "passed": not notes_mention_contamination,
+            "severity": "hard_gate" if notes_mention_contamination else "none",
+            "reason": (
+                "Disclosure notes indicate possible contamination — Hard Compliance Gate triggered."
+                if notes_mention_contamination
+                else "No contamination disclosed."
+            ),
+        },
+        {
+            "key": "zone1_integrity",
+            "category": "damage_disclosure",
+            "label": "Zone 1 Integrity (No Breach or Repair)",
+            "passed": not notes_mention_zone1_damage,
+            "severity": "hard_gate" if notes_mention_zone1_damage else "none",
+            "reason": (
+                "Disclosure notes reference damage or repair affecting Zone 1 — Hard Compliance Gate triggered."
+                if notes_mention_zone1_damage
+                else "No Zone 1 tear or repair disclosed (unlock Live AI for visual Zone 1 inspection)."
+            ),
+        },
+        {
+            "key": "stitching_seams_intact",
+            "category": "damage_disclosure",
+            "label": "Stitching, Yarn & Seam Integrity",
+            "passed": not has_defect,
+            "severity": "minor" if has_defect else "none",
+            "reason": (
+                "Optional defect close-up uploaded — queued for in-hand seam and stitching review by store staff."
+                if has_defect
+                else "No stitching issues disclosed; confirm seams in hand at counter."
+            ),
+        },
+        {
+            "key": "hardware_zippers_condition",
+            "category": "damage_disclosure",
+            "label": "Zippers, Snaps & Hardware Condition",
+            "passed": True,
+            "severity": "none",
+            "reason": "No hardware defects disclosed; confirm zipper action in hand.",
+        },
+        {
+            "key": "lining_interior_condition",
+            "category": "damage_disclosure",
+            "label": "Lining & Interior Condition",
+            "passed": has_inside,
+            "severity": "none" if has_inside else "minor",
+            "reason": (
+                "Interior angle recorded for counter lining inspection."
+                if has_inside
+                else "Inside photo absent — physical lining check required."
+            ),
+        },
+        {
+            "key": "zone2_3_wear_fading",
+            "category": "damage_disclosure",
+            "label": "Zone 2/3 Wear & Fading",
+            "passed": not heavy_usage,
+            "severity": "minor" if heavy_usage else "none",
+            "reason": (
+                "Heavy usage disclosed — flagged for in-hand Zone 2/3 wear and fading inspection."
+                if heavy_usage
+                else f"Usage disclosed as '{usage}'; no excessive Zone 2/3 wear disclosed."
+            ),
+        },
+    ]
+
+    extracted_labels = {
+        "brand": "Demo Sample (Unlock Live AI for OCR)",
+        "size": "Unknown",
+        "ce_label": "none",
+        "composition": "not determinable",
+        "material_group": "textile",
+    }
+    hard_gate_flags = {
+        "crash_evident": crash_declared,
+        "contamination_evident": notes_mention_contamination,
+        "zone1_breach_or_repair": notes_mention_zone1_damage,
+    }
+
+    summary = (
+        f"Portfolio Demo Mode completed photo coverage and damage disclosure triage for {len(photos or [])} "
+        f"{normalized_garment} photo(s) using real Stage-1 OpenCLIP verification and deterministic rubric rules ($0 Azure OpenAI spend). "
+        "Unlock Live AI with a passcode to run live Azure OpenAI vision inspection."
+    )
+
+    raw_demo_payload = {
+        "checklist": checklist,
+        "extracted_labels": extracted_labels,
+        "hard_gate_flags": hard_gate_flags,
+        "contradiction_flagged": False,
+        "contradiction_reason": None,
+        "summary": summary,
+    }
+    normalized = _normalize_vision_response(raw_demo_payload)
+    normalized["agent_trace"] = {
+        "provider": "Portfolio Demo Mode (No API Spend)",
+        "agent_label": "Demo Rubric Simulator (Unlock Passcode for Live Azure AI)",
+        "deployment": f"{deployment} (standby)",
+        "model_returned": "demo-rubric-simulator",
+        "api_version": api_version,
+        "endpoint_host": endpoint_host,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "latency_ms": 0,
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        },
+        "clip_stage1_model": "OpenCLIP ViT-B-32 (laion2b_s34b_b79k, frozen inference)",
+        "photos_evaluated": len(photos or []),
+        "system_prompt": _SYSTEM_PROMPT,
+        "user_prompt": (
+            f"[Portfolio Demo Mode — zero external API call made]\n"
+            f"Garment Type: {normalized_garment.upper()}\n"
+            f"Captured Angles: {', '.join(sorted(present_angles)) or 'none'}\n"
+            f"Rider Disclosure: {json.dumps(disc, ensure_ascii=False)}"
+        ),
+        "raw_response": json.dumps(raw_demo_payload, indent=2),
+    }
+    return normalized
+
+
 # REFERENCES (no training):
 # - Model is pretrained and frozen for inference only (model.eval(), torch.no_grad(),
 #   no optimizer, no backward pass, no fine-tuning).
@@ -382,6 +634,7 @@ def score_photos(
     disclosure: dict[str, Any] | None = None,
     *,
     runtime_settings: dict[str, Any] | None = None,
+    use_demo_mode: bool = False,
 ) -> dict[str, Any]:
     """Evaluate intake photos against Moto Reloaded's rubric via Azure OpenAI (swappable provider boundary)."""
     load_dotenv()
@@ -398,6 +651,18 @@ def score_photos(
     temperature = float(rs["temperature"]) if rs.get("temperature") is not None else 0.1
     max_tokens = int(rs["max_tokens"]) if rs.get("max_tokens") is not None else 1800
     endpoint_host = urlparse(endpoint).hostname if endpoint else None
+
+    if use_demo_mode:
+        return _demo_rubric_evaluation(
+            photos,
+            garment_type,
+            disclosure,
+            deployment=deployment,
+            api_version=api_version,
+            endpoint_host=endpoint_host,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
     normalized_garment = (garment_type or "jacket").strip().lower()
     if normalized_garment not in {"jacket", "pants"}:

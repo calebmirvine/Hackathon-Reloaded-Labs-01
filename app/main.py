@@ -34,7 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 load_dotenv()
 
-from app import clip_matcher, db, exporter, scoring_engine, vision_scorer  # noqa: E402
+from app import clip_matcher, db, exporter, guardrails, scoring_engine, vision_scorer  # noqa: E402
 from app.clip_matcher import REQUIRED_ANGLES, verify_angle  # noqa: E402
 from app.scoring_engine import compute_score  # noqa: E402
 from app.vision_scorer import score_photos  # noqa: E402
@@ -138,8 +138,17 @@ def _run_score_photos(
     disclosure: dict[str, Any] | None = None,
     *,
     runtime_settings: dict[str, Any] | None = None,
+    use_demo_mode: bool = False,
 ) -> dict[str, Any]:
     """Dispatch Stage 2 Azure OpenAI vision rubric scoring (supports monkeypatching)."""
+    if use_demo_mode:
+        return _ORIG_SCORE_PHOTOS(
+            photos,
+            garment_type,
+            disclosure,
+            runtime_settings=runtime_settings,
+            use_demo_mode=True,
+        )
     target = (
         score_photos if score_photos is not _ORIG_SCORE_PHOTOS else vision_scorer.score_photos
     )
@@ -458,6 +467,35 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/config/public")
+def get_public_config() -> dict[str, Any]:
+    """Return non-secret public runtime mode and credit-protection quota status."""
+    return guardrails.get_public_runtime_mode()
+
+
+@app.post("/auth/verify-passcode")
+def verify_live_passcode(request: Request) -> dict[str, Any]:
+    """Verify optional X-Live-Passcode header for unlocking Live AI and Admin writes."""
+    client_ip = guardrails.extract_client_ip(request)
+    allowed, retry_after = guardrails.rate_limiter.check_failed_passcode_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many invalid passcode attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    candidate = request.headers.get("x-live-passcode")
+    if not guardrails.verify_passcode(candidate):
+        guardrails.rate_limiter.record_failed_passcode(client_ip)
+        raise HTTPException(status_code=403, detail="Invalid live access passcode.")
+
+    return {
+        "unlocked": True,
+        **guardrails.get_public_runtime_mode(),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Core Intake Session, Upload, Status & Scoring Routes
 # ---------------------------------------------------------------------------
@@ -536,6 +574,13 @@ async def upload_photo(
         )
 
     raw_bytes = await file.read()
+    max_upload_bytes = guardrails.get_max_upload_bytes()
+    if len(raw_bytes) > max_upload_bytes:
+        max_mb = max(1, round(max_upload_bytes / (1024 * 1024)))
+        raise HTTPException(
+            status_code=413,
+            detail=f"Uploaded image exceeds the {max_mb} MB size limit.",
+        )
     ts = int(time.time() * 1000)
     filename = f"{clean_angle}_{ts}.jpg"
     dest_path = UPLOADS_DIR / session_id / filename
@@ -640,7 +685,7 @@ def get_session_status(session_id: str) -> dict[str, Any]:
 
 
 @app.post("/score")
-def score_intake_session(payload: ScoreRequest) -> dict[str, Any]:
+def score_intake_session(payload: ScoreRequest, request: Request) -> dict[str, Any]:
     _ensure_db()
     session = db.get_session(payload.session_id)
     if session is None:
@@ -661,12 +706,55 @@ def score_intake_session(payload: ScoreRequest) -> dict[str, Any]:
             detail="No photos uploaded for this session yet. Capture at least one angle before scoring.",
         )
 
+    score_mode = guardrails.get_score_mode()
+    raw_passcode = (request.headers.get("x-live-passcode") or "").strip()
+    client_ip = guardrails.extract_client_ip(request)
+    use_demo_mode = False
+
+    if score_mode == "demo":
+        use_demo_mode = True
+    elif score_mode == "demo_with_passcode":
+        if not raw_passcode:
+            use_demo_mode = True
+        else:
+            probe_ok, probe_retry = guardrails.rate_limiter.check_failed_passcode_allowed(client_ip)
+            if not probe_ok:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many invalid passcode attempts. Please try again later.",
+                    headers={"Retry-After": str(probe_retry)},
+                )
+            if not guardrails.verify_passcode(raw_passcode):
+                guardrails.rate_limiter.record_failed_passcode(client_ip)
+                raise HTTPException(
+                    status_code=403,
+                    detail="Invalid live access passcode. Clear the passcode to score in Demo Mode ($0 spend).",
+                )
+            allowed, reason, retry_after = guardrails.rate_limiter.check_and_record_live_score(client_ip)
+            if not allowed:
+                raise HTTPException(
+                    status_code=429,
+                    detail=reason,
+                    headers={"Retry-After": str(retry_after)},
+                )
+            use_demo_mode = False
+    else:
+        allowed, reason, retry_after = guardrails.rate_limiter.check_and_record_live_score(client_ip)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=reason,
+                headers={"Retry-After": str(retry_after)},
+            )
+        use_demo_mode = False
+
     settings = db.get_settings()
     vision_result = _run_score_photos(
         photos,
         session["garment_type"],
         merged_disclosure,
         runtime_settings=settings,
+        use_demo_mode=use_demo_mode,
     )
     score_result = _run_compute_score(
         vision_result,
@@ -882,9 +970,26 @@ def get_admin_settings() -> dict[str, Any]:
 
 
 @app.post("/admin/settings")
-def save_admin_settings(payload: AdminSettingsUpdate) -> dict[str, Any]:
+def save_admin_settings(payload: AdminSettingsUpdate, request: Request) -> dict[str, Any]:
     """Validate and persist runtime intake settings in SQLite."""
     _ensure_db()
+    if guardrails.is_admin_write_protected():
+        client_ip = guardrails.extract_client_ip(request)
+        probe_ok, probe_retry = guardrails.rate_limiter.check_failed_passcode_allowed(client_ip)
+        if not probe_ok:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many invalid passcode attempts. Please try again later.",
+                headers={"Retry-After": str(probe_retry)},
+            )
+        raw_passcode = (request.headers.get("x-live-passcode") or "").strip()
+        if not guardrails.verify_passcode(raw_passcode):
+            guardrails.rate_limiter.record_failed_passcode(client_ip)
+            raise HTTPException(
+                status_code=403,
+                detail="Admin settings are locked in public portfolio mode. Unlock with the Live Access Passcode first.",
+            )
+
     patch = payload.model_dump(exclude_none=True)
     if "public_base_url" in patch:
         raw_url = str(patch["public_base_url"]).strip().rstrip("/")
@@ -955,5 +1060,6 @@ def get_admin_diagnostics() -> dict[str, Any]:
             "inference_only": True,
             "wording_mode": "photo_coverage_and_damage_disclosure_only",
         },
+        "protection": guardrails.get_public_runtime_mode(),
         "latest_agent_trace": db.get_latest_agent_trace(),
     }

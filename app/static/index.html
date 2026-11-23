@@ -75,6 +75,37 @@
   </header>
 
   <main class="page-main">
+    <!-- Portfolio Demo Mode & Live Passcode Bar (hidden locally when SCORE_MODE=live) -->
+    <section
+      id="portfolio-mode-bar"
+      class="portfolio-mode-bar hidden"
+      aria-label="Portfolio Demo Mode and Live AI Access"
+    >
+      <div class="portfolio-mode-copy">
+        <span id="portfolio-mode-pill" class="pill pill-review">Demo Mode · $0 API Spend</span>
+        <p id="portfolio-mode-desc" class="portfolio-mode-desc">
+          Real Stage-1 OpenCLIP angle verification and 0–100 deterministic scoring are live.
+          Enter the access passcode to unlock live Azure OpenAI vision inspection.
+        </p>
+      </div>
+      <form id="portfolio-passcode-form" class="portfolio-passcode-form">
+        <label for="portfolio-passcode-input" class="sr-only">Live AI Access Passcode</label>
+        <input
+          id="portfolio-passcode-input"
+          class="input portfolio-passcode-input"
+          type="password"
+          autocomplete="off"
+          placeholder="Live AI passcode…"
+        />
+        <button id="btn-unlock-live" type="submit" class="btn btn-primary btn-sm">
+          Unlock Live AI
+        </button>
+        <button id="btn-lock-live" type="button" class="btn btn-secondary btn-sm hidden">
+          Return to Demo Mode
+        </button>
+      </form>
+    </section>
+
     <!-- Live Status Toast Region -->
     <div id="global-toast" class="toast-banner hidden" role="status" aria-live="polite"></div>
 
@@ -728,7 +759,10 @@
               <div class="section-kicker">Runtime Settings</div>
               <h3 class="section-title" style="font-size: 1.15rem;">Runtime Configuration</h3>
             </div>
-            <span class="pill pill-reject">Hard Compliance Gate &lt;= 49 · Locked ON</span>
+            <div class="row-wrap" style="gap: 0.4rem;">
+              <span id="admin-lock-badge" class="pill pill-review hidden">Read-Only · Passcode Required</span>
+              <span class="pill pill-reject">Hard Compliance Gate &lt;= 49 · Locked ON</span>
+            </div>
           </div>
 
           <div class="settings-grid">

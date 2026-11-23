@@ -1,0 +1,35 @@
+# Created by Caleb M. Irvine for use by Moto Reloaded
+# Strictly exclude secrets, confidential challenge materials, local runtime state, and dev caches.
+
+.git/
+.github/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+
+# Secrets & environment files
+.env
+.env.*
+
+# Confidential Moto Reloaded challenge dataset & briefing docs
+.agents/
+data/
+refs.npy
+refs_meta.json
+*.npy
+
+# Local runtime state & exports
+intake.db
+*.db
+*.sqlite
+*.sqlite3
+uploads/
+exports/
+chroma_db/
+
+# Tests & local review/docs not needed inside container
+tests/
+docs/
+REVIEW.md

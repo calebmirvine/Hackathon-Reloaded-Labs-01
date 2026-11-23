@@ -4,6 +4,9 @@
 
 FROM python:3.11-slim AS runtime
 
+LABEL org.opencontainers.image.source="https://github.com/calebmirvine/Hackathon-Reloaded-Labs-01" \
+      org.opencontainers.image.description="Moto Reloaded Gear Intake Checker (photo coverage + damage disclosure)"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \

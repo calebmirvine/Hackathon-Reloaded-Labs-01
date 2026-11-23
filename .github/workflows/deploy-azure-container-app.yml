@@ -42,16 +42,14 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python 3.11
-        run: uv python install 3.11
-
-      - name: Install lightweight test dependencies (CPU-only offline test run)
+      - name: Set up Python 3.11 virtual environment & test dependencies
         run: |
-          uv pip install --system --no-cache \
+          uv venv --python 3.11 .ci-venv
+          uv pip install --python .ci-venv/bin/python --no-cache \
             fastapi uvicorn python-multipart numpy pillow openai python-dotenv pydantic "qrcode[pil]" openpyxl pytest httpx
 
       - name: Run offline automated test suite
-        run: pytest -v
+        run: .ci-venv/bin/pytest -v
 
   build-and-deploy:
     name: Build CPU Image -> GHCR -> Azure Container App

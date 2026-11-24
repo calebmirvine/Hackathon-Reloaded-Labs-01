@@ -24,7 +24,7 @@ const STEPS = [
       jacket:
         "Turn or fold cleanly to show the outer left shoulder, left sleeve, and left elbow/forearm (Zone 1 impact areas).",
       pants:
-        "Turn or fold cleanly to show the outer left hip, outer thigh, and left knee (Zone 1 impact areas).",
+        "Fold the left leg flat so it fills the rectangle. Outer hip, thigh, and knee.",
     },
   },
   {
@@ -36,7 +36,7 @@ const STEPS = [
       jacket:
         "Turn or fold cleanly to show the outer right shoulder, right sleeve, and right elbow/forearm (Zone 1 impact areas).",
       pants:
-        "Turn or fold cleanly to show the outer right hip, outer thigh, and right knee (Zone 1 impact areas).",
+        "Fold the right leg flat so it fills the rectangle. Outer hip, thigh, and knee.",
     },
   },
   {
@@ -77,14 +77,14 @@ const STEPS = [
   },
   {
     key: "defect",
-    shortLabel: "7. Defect",
-    title: "Defect Close-Up (Optional)",
+    shortLabel: "7. Close-up",
+    title: "Damage close-up",
     required: false,
     hints: {
       jacket:
-        "Optional: photograph any visible scuff, abrasion, tear, repair, or zipper fault — one defect per shot. Place a coin right next to the mark for scale.",
+        "The six angles stay required. If you see a scuff, tear, stain, or broken pad, take one damage close-up of that spot. If nothing looks wrong, continue without an extra photo.",
       pants:
-        "Optional: photograph any visible scuff, abrasion, tear, repair, or zipper fault — one defect per shot. Place a coin right next to the mark for scale.",
+        "The six angles stay required. If you see a scuff, tear, stain, or broken pad, take one damage close-up of that spot. If nothing looks wrong, continue without an extra photo.",
     },
   },
   {
@@ -96,10 +96,44 @@ const STEPS = [
   },
 ];
 
+const JACKET_STEP_ORDER = ["front", "left", "right", "back", "inside", "labels", "defect", "disclosure"];
+const PANTS_STEP_ORDER = ["front", "back", "left", "right", "inside", "labels", "defect", "disclosure"];
+
+function activeSteps() {
+  const pants = state.garmentType === "pants";
+  const order = pants ? PANTS_STEP_ORDER : JACKET_STEP_ORDER;
+  return order.map((key, index) => {
+    const base = STEPS.find((step) => step.key === key);
+    const step = {
+      ...base,
+      shortLabel: `${index + 1}. ${String(base.shortLabel).replace(/^\d+\.\s*/, "")}`,
+    };
+    if (!pants) return step;
+    if (key === "left") {
+      return { ...step, shortLabel: "3. Left fold", title: "Left fold" };
+    }
+    if (key === "right") {
+      return { ...step, shortLabel: "4. Right fold", title: "Right fold" };
+    }
+    return step;
+  });
+}
+
+function firstOpenStepIndex() {
+  const steps = activeSteps();
+  const missing = steps.findIndex((step) => step.required && !state.photosByAngle.has(step.key));
+  if (missing >= 0) return missing;
+  const closeup = steps.findIndex((step) => step.key === "defect");
+  return closeup >= 0 ? closeup : 0;
+}
+
 // Auto-capture tuning (250ms ticks; 5 steady sharp ticks ~= 1.25s lock-on)
 const ANALYZE_INTERVAL_MS = 250;
 const LOCK_TICKS_REQUIRED = 5;
 const CAMERA_WARMUP_MS = 1200;
+const ANALYSIS_W = 120;
+const ANALYSIS_H = 160;
+const VIEWFINDER_VIEWBOX = "0 0 300 400";
 
 const state = {
   sessionId: null,
@@ -108,6 +142,8 @@ const state = {
   currentStepIndex: 0,
   photosByAngle: new Map(),
   defectPhotos: [],
+  markChoice: null, // "clear" | "mark" | null
+  flaggedSpot: "",
   lastFeedbackByAngle: new Map(),
   isUploading: false,
   riderCrash: false,
@@ -164,6 +200,9 @@ const els = {
   lockTrack: document.getElementById("viewfinder-lock-track"),
   lockBar: document.getElementById("viewfinder-lock-bar"),
   defectGallery: document.getElementById("phone-defect-gallery"),
+  markChoiceForm: document.getElementById("mark-choice-form"),
+  markChoiceError: document.getElementById("mark-choice-error"),
+  markCloseupError: document.getElementById("mark-closeup-error"),
   uploadBusy: document.getElementById("upload-busy"),
   clipBanner: document.getElementById("clip-feedback-banner"),
   clipTitle: document.getElementById("clip-feedback-title"),
@@ -194,6 +233,8 @@ const els = {
   phoneDecisionPill: document.getElementById("phone-decision-pill"),
   phoneDecisionTitle: document.getElementById("phone-decision-title"),
   phoneDecisionSummary: document.getElementById("phone-decision-summary"),
+  phoneDecisionGoal: document.getElementById("phone-decision-goal"),
+  phoneRetakeTitle: document.getElementById("phone-retake-title"),
   phoneScoreTotal: document.getElementById("phone-score-total"),
   phoneCovText: document.getElementById("phone-cov-text"),
   phoneCovBar: document.getElementById("phone-cov-bar"),
@@ -286,12 +327,27 @@ function parseSessionIdFromUrl() {
 
 const CORNER_BRACKETS_SVG = `
   <g stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none" opacity="0.92">
-    <path d="M24 54 V24 H54" />
-    <path d="M346 24 H376 V54" />
-    <path d="M24 246 V276 H54" />
-    <path d="M346 276 H376 V246" />
+    <path d="M22 78 V54 H52" />
+    <path d="M248 54 H278 V78" />
+    <path d="M22 314 V338 H52" />
+    <path d="M248 338 H278 V314" />
   </g>
 `;
+
+// Laid-flat motorcycle jacket: stand collar, long sleeves, hem near the cuffs.
+const JACKET_OUTLINE =
+  "M98 332 C94 240 90 186 106 164 L58 304 L30 290 C62 200 78 118 96 98 C114 72 130 62 142 80 L148 98 C150 106 150 106 152 98 L158 80 C170 62 186 72 204 98 C222 118 238 200 270 290 L242 304 L194 164 C210 186 206 240 202 332 Z";
+
+// Laid-flat motorcycle pants: waistband, hip, crotch, and two long legs.
+const PANTS_OUTLINE =
+  "M74 66 H226 L238 156 C248 214 252 270 246 336 L178 336 L166 214 C158 190 142 190 134 214 L122 336 L54 336 C48 270 52 214 62 156 Z";
+
+const ZONE_MARK_ATTRS =
+  'fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="5 4" opacity="0.8"';
+
+function sideMirrorAttr(angle) {
+  return angle === "right" ? 'transform="translate(300 0) scale(-1 1)"' : "";
+}
 
 function buildViewfinderSvg(garment, angle) {
   const isPants = garment === "pants";
@@ -299,44 +355,45 @@ function buildViewfinderSvg(garment, angle) {
   if (angle === "labels") {
     return `
       ${CORNER_BRACKETS_SVG}
-      <g stroke="currentColor" fill="none">
-        <rect x="85" y="72" width="230" height="146" rx="10" stroke-width="2.4" stroke-dasharray="8 5" />
-        <path d="M110 108 H290 M110 132 H256 M110 156 H274 M110 180 H218" stroke-width="1.6" opacity="0.55" />
-        <text x="200" y="250" text-anchor="middle" fill="currentColor" font-size="13" font-weight="700" font-family="Instrument Sans, sans-serif">
-          Align label inside box — must be sharp
-        </text>
-      </g>
+      <rect x="46" y="108" width="208" height="150" rx="10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-dasharray="8 5" />
     `;
   }
 
   if (angle === "defect") {
     return `
       ${CORNER_BRACKETS_SVG}
-      <g stroke="currentColor" fill="none">
-        <circle cx="165" cy="150" r="56" stroke-width="2.2" stroke-dasharray="7 5" />
-        <path d="M165 82 V112 M165 188 V218 M97 150 H127 M203 150 H233" stroke-width="2" />
-        <circle cx="282" cy="176" r="28" stroke-width="2.2" stroke-dasharray="5 4" />
-        <text x="282" y="180" text-anchor="middle" fill="currentColor" font-size="10.5" font-weight="700" font-family="Instrument Sans, sans-serif">
-          COIN
-        </text>
-        <text x="200" y="254" text-anchor="middle" fill="currentColor" font-size="12.5" font-weight="700" font-family="Instrument Sans, sans-serif">
-          Center defect + place coin beside mark
-        </text>
+      <g fill="none" stroke="currentColor">
+        <circle cx="150" cy="200" r="54" stroke-width="2.2" stroke-dasharray="7 5" />
+        <path d="M150 134 V162 M150 238 V266 M84 200 H112 M188 200 H216" stroke-width="2" />
       </g>
     `;
   }
 
-  if (angle === "inside") {
+  if (angle === "inside" && !isPants) {
     return `
       ${CORNER_BRACKETS_SVG}
-      <g stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round" stroke-linecap="round">
-        <path d="M110 46 H290 L306 254 H94 L110 46 Z" stroke-dasharray="7 5" />
-        <rect x="128" y="84" width="56" height="68" rx="6" opacity="0.72" />
-        <rect x="216" y="84" width="56" height="68" rx="6" opacity="0.72" />
-        <path d="M126 196 H274" stroke-dasharray="4 4" opacity="0.7" />
-        <text x="200" y="274" text-anchor="middle" fill="currentColor" font-size="12" font-weight="700" font-family="Instrument Sans, sans-serif">
-          Inside-out lining &amp; protector pockets
-        </text>
+      <g fill="none" stroke="currentColor" stroke-width="2.3" stroke-linejoin="round" stroke-linecap="round">
+        <path d="${JACKET_OUTLINE}" stroke-dasharray="7 5" />
+        <rect x="88" y="108" width="32" height="26" rx="5" ${ZONE_MARK_ATTRS} />
+        <rect x="180" y="108" width="32" height="26" rx="5" ${ZONE_MARK_ATTRS} />
+        <rect x="56" y="204" width="26" height="32" rx="5" ${ZONE_MARK_ATTRS} />
+        <rect x="218" y="204" width="26" height="32" rx="5" ${ZONE_MARK_ATTRS} />
+        <rect x="122" y="142" width="56" height="30" rx="6" ${ZONE_MARK_ATTRS} />
+      </g>
+    `;
+  }
+
+  if (angle === "inside" && isPants) {
+    return `
+      ${CORNER_BRACKETS_SVG}
+      <g fill="none" stroke="currentColor" stroke-width="2.3" stroke-linejoin="round" stroke-linecap="round">
+        <path d="${PANTS_OUTLINE}" stroke-dasharray="7 5" />
+        <path d="M78 84 H222" stroke-width="1.7" opacity="0.7" />
+        <rect x="84" y="158" width="36" height="28" rx="5" ${ZONE_MARK_ATTRS} />
+        <rect x="180" y="158" width="36" height="28" rx="5" ${ZONE_MARK_ATTRS} />
+        <rect x="70" y="248" width="40" height="36" rx="5" ${ZONE_MARK_ATTRS} />
+        <rect x="190" y="248" width="40" height="36" rx="5" ${ZONE_MARK_ATTRS} />
+        <ellipse cx="150" cy="124" rx="46" ry="26" ${ZONE_MARK_ATTRS} />
       </g>
     `;
   }
@@ -344,25 +401,32 @@ function buildViewfinderSvg(garment, angle) {
   if (!isPants && (angle === "front" || angle === "back")) {
     const detail =
       angle === "front"
-        ? `<path d="M200 66 V252" stroke-width="1.8" stroke-dasharray="5 5" opacity="0.75" />`
-        : `<path d="M142 96 Q200 116 258 96" stroke-width="1.8" stroke-dasharray="5 5" opacity="0.75" />`;
+        ? `<path d="M150 104 V326" stroke-width="1.8" opacity="0.8" />`
+        : `<path d="M124 148 H176 L170 176 Q150 190 130 176 Z" stroke-width="1.8" stroke-dasharray="5 4" opacity="0.85" />`;
+    const zones =
+      angle === "front"
+        ? `<circle cx="108" cy="128" r="14" ${ZONE_MARK_ATTRS} />
+           <circle cx="192" cy="128" r="14" ${ZONE_MARK_ATTRS} />
+           <circle cx="68" cy="222" r="12" ${ZONE_MARK_ATTRS} />
+           <circle cx="232" cy="222" r="12" ${ZONE_MARK_ATTRS} />`
+        : "";
     return `
       ${CORNER_BRACKETS_SVG}
-      <g stroke="currentColor" stroke-width="2.3" fill="none" stroke-linejoin="round" stroke-linecap="round">
-        <path d="M162 44 Q200 66 238 44 L290 74 L322 214 L276 222 L258 132 V254 H142 V132 L124 222 L78 214 L110 74 Z" />
+      <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+        <path d="${JACKET_OUTLINE}" />
         ${detail}
+        ${zones}
       </g>
     `;
   }
 
   if (!isPants && (angle === "left" || angle === "right")) {
-    const mirror = angle === "right" ? 'transform="translate(400, 0) scale(-1, 1)"' : "";
     return `
       ${CORNER_BRACKETS_SVG}
-      <g ${mirror} stroke="currentColor" stroke-width="2.3" fill="none" stroke-linejoin="round" stroke-linecap="round">
-        <path d="M150 52 C192 44 236 62 248 106 L274 244 H208 L186 154 L172 252 H122 L130 108 C132 76 138 56 150 52 Z" />
-        <circle cx="192" cy="86" r="24" stroke-dasharray="5 4" stroke-width="1.8" opacity="0.8" />
-        <circle cx="222" cy="166" r="22" stroke-dasharray="5 4" stroke-width="1.8" opacity="0.8" />
+      <g ${sideMirrorAttr(angle)} fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M150 50 C112 52 98 88 102 124 L90 214 C82 250 98 274 120 288 L128 338 L176 338 L188 288 C210 270 214 242 202 208 L190 126 C186 82 170 48 150 50 Z" />
+        <circle cx="150" cy="108" r="24" ${ZONE_MARK_ATTRS} />
+        <circle cx="138" cy="258" r="20" ${ZONE_MARK_ATTRS} />
       </g>
     `;
   }
@@ -370,27 +434,33 @@ function buildViewfinderSvg(garment, angle) {
   if (isPants && (angle === "front" || angle === "back")) {
     const zones =
       angle === "front"
-        ? `<circle cx="152" cy="178" r="20" stroke-dasharray="5 4" stroke-width="1.8" opacity="0.78" />
-           <circle cx="248" cy="178" r="20" stroke-dasharray="5 4" stroke-width="1.8" opacity="0.78" />`
-        : `<ellipse cx="200" cy="108" rx="54" ry="26" stroke-dasharray="5 4" stroke-width="1.8" opacity="0.78" />`;
+        ? `<path d="M150 86 V172" stroke-width="1.7" opacity="0.75" />
+           <circle cx="96" cy="268" r="18" ${ZONE_MARK_ATTRS} />
+           <circle cx="204" cy="268" r="18" ${ZONE_MARK_ATTRS} />`
+        : `<ellipse cx="150" cy="122" rx="50" ry="28" ${ZONE_MARK_ATTRS} />`;
     return `
       ${CORNER_BRACKETS_SVG}
-      <g stroke="currentColor" stroke-width="2.3" fill="none" stroke-linejoin="round" stroke-linecap="round">
-        <path d="M132 42 H268 L286 258 H222 L200 132 L178 258 H114 L132 42 Z" />
-        <path d="M130 66 H270" stroke-width="1.6" opacity="0.65" />
+      <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+        <path d="${PANTS_OUTLINE}" />
+        <path d="M78 84 H222" stroke-width="1.7" opacity="0.7" />
         ${zones}
       </g>
     `;
   }
 
-  // Pants left / right outer side profile
-  const mirror = angle === "right" ? 'transform="translate(400, 0) scale(-1, 1)"' : "";
+  if (isPants && (angle === "left" || angle === "right")) {
+    return `
+      ${CORNER_BRACKETS_SVG}
+      <g ${sideMirrorAttr(angle)} fill="none" stroke="currentColor" stroke-width="2.5">
+        <rect x="86" y="46" width="128" height="308" rx="6" />
+      </g>
+    `;
+  }
+
   return `
     ${CORNER_BRACKETS_SVG}
-    <g ${mirror} stroke="currentColor" stroke-width="2.3" fill="none" stroke-linejoin="round" stroke-linecap="round">
-      <path d="M156 42 H244 L256 144 L244 258 H164 L148 148 L156 42 Z" />
-      <ellipse cx="200" cy="96" rx="34" ry="24" stroke-dasharray="5 4" stroke-width="1.8" opacity="0.8" />
-      <circle cx="202" cy="178" r="24" stroke-dasharray="5 4" stroke-width="1.8" opacity="0.8" />
+    <g fill="none" stroke="currentColor" stroke-width="2.5">
+      <rect x="70" y="54" width="160" height="292" rx="8" />
     </g>
   `;
 }
@@ -459,8 +529,9 @@ async function startCameraViewfinder() {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        aspectRatio: { ideal: 0.75 },
+        width: { ideal: 1080 },
+        height: { ideal: 1440 },
       },
       audio: false,
     });
@@ -496,11 +567,29 @@ function enterFallbackViewfinder() {
   els.lockTrack.classList.add("hidden");
 }
 
+function visibleVideoRect(video) {
+  const vw = video.videoWidth || 0;
+  const vh = video.videoHeight || 0;
+  const ew = video.clientWidth || 0;
+  const eh = video.clientHeight || 0;
+  if (vw < 2 || vh < 2 || ew < 2 || eh < 2) {
+    return null;
+  }
+  const videoAspect = vw / vh;
+  const elemAspect = ew / eh;
+  if (videoAspect > elemAspect) {
+    const sw = vh * elemAspect;
+    return { sx: (vw - sw) / 2, sy: 0, sw, sh: vh };
+  }
+  const sh = vw / elemAspect;
+  return { sx: 0, sy: (vh - sh) / 2, sw: vw, sh };
+}
+
 function ensureAnalysisCanvas() {
   if (!state.analysisCanvas) {
     const canvas = document.createElement("canvas");
-    canvas.width = 160;
-    canvas.height = 120;
+    canvas.width = ANALYSIS_W;
+    canvas.height = ANALYSIS_H;
     state.analysisCanvas = canvas;
     state.analysisCtx = canvas.getContext("2d", { willReadFrequently: true });
   }
@@ -522,9 +611,22 @@ function startAnalysisLoop() {
     }
     if (els.liveVideo.readyState < 2) return;
 
-    const w = 160;
-    const h = 120;
-    state.analysisCtx.drawImage(els.liveVideo, 0, 0, w, h);
+    const crop = visibleVideoRect(els.liveVideo);
+    if (!crop) return;
+
+    const w = ANALYSIS_W;
+    const h = ANALYSIS_H;
+    state.analysisCtx.drawImage(
+      els.liveVideo,
+      crop.sx,
+      crop.sy,
+      crop.sw,
+      crop.sh,
+      0,
+      0,
+      w,
+      h
+    );
     const { data } = state.analysisCtx.getImageData(0, 0, w, h);
     const luma = new Uint8Array(w * h);
 
@@ -574,7 +676,7 @@ function startAnalysisLoop() {
     const lapMean = count > 0 ? lapSum / count : 0;
     const sharpness = count > 0 ? lapSqSum / count - lapMean * lapMean : 0;
 
-    const step = STEPS[state.currentStepIndex];
+    const step = activeSteps()[state.currentStepIndex];
     const minSharpness = step?.key === "labels" ? 110 : 52;
     const warmupDone = Date.now() - state.cameraOpenedAt >= CAMERA_WARMUP_MS;
 
@@ -623,17 +725,18 @@ function startAnalysisLoop() {
 
 function snapLiveFrame() {
   if (!state.cameraStream || els.liveVideo.readyState < 2 || state.isUploading) return;
+  const crop = visibleVideoRect(els.liveVideo);
+  if (!crop) return;
   stopAnalysisLoop();
-
-  const width = els.liveVideo.videoWidth || 1280;
-  const height = els.liveVideo.videoHeight || 960;
+  const width = Math.max(2, Math.round(crop.sw));
+  const height = Math.max(2, Math.round(crop.sh));
   const captureCanvas = document.createElement("canvas");
   captureCanvas.width = width;
   captureCanvas.height = height;
   const ctx = captureCanvas.getContext("2d");
-  ctx.drawImage(els.liveVideo, 0, 0, width, height);
+  ctx.drawImage(els.liveVideo, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, width, height);
 
-  const step = STEPS[state.currentStepIndex];
+  const step = activeSteps()[state.currentStepIndex];
   const angleKey = step ? step.key : "photo";
 
   captureCanvas.toBlob(
@@ -676,8 +779,7 @@ async function loadInitialSession() {
       renderCompleteScreen(null);
       startScorePolling();
     } else if ((data.photos || []).length > 0) {
-      const firstMissingIdx = REQUIRED_ANGLES.findIndex((a) => !state.photosByAngle.has(a));
-      state.currentStepIndex = firstMissingIdx >= 0 ? firstMissingIdx : REQUIRED_ANGLES.length;
+      state.currentStepIndex = firstOpenStepIndex();
       state.retakeLiveMode = false;
       renderStep({ animate: false });
     } else {
@@ -701,6 +803,7 @@ function hydrateFromStatus(data) {
 
   state.photosByAngle.clear();
   state.defectPhotos = [];
+  state.markChoice = null;
   (data.photos || []).forEach((p) => {
     const ang = String(p.angle || "").toLowerCase();
     if (ang === "defect") {
@@ -714,6 +817,9 @@ function hydrateFromStatus(data) {
       });
     }
   });
+  if (state.defectPhotos.length > 0) {
+    state.markChoice = "mark";
+  }
 
   if (data.disclosure) {
     setRiderCrash(Boolean(data.disclosure.crash));
@@ -771,8 +877,7 @@ async function handleSelectMobileCategory(garmentType) {
   state.garmentType = chosen;
   els.garmentChipLabel.textContent = capitalize(chosen);
 
-  const firstMissingIdx = REQUIRED_ANGLES.findIndex((a) => !state.photosByAngle.has(a));
-  state.currentStepIndex = firstMissingIdx >= 0 ? firstMissingIdx : 0;
+  state.currentStepIndex = firstOpenStepIndex();
   state.retakeLiveMode = false;
   renderStep({ animate: true });
 }
@@ -787,7 +892,7 @@ function renderProgressAndStepper() {
   els.progressText.textContent = `${capturedRequiredCount} / ${REQUIRED_ANGLES.length} captured`;
   els.progressBar.style.width = `${(capturedRequiredCount / REQUIRED_ANGLES.length) * 100}%`;
 
-  els.stepper.innerHTML = STEPS.map((step, idx) => {
+  els.stepper.innerHTML = activeSteps().map((step, idx) => {
     const isCurrent =
       (state.view === "photo" || state.view === "disclosure") && idx === state.currentStepIndex;
     let statusClass = "";
@@ -833,7 +938,7 @@ function renderProgressAndStepper() {
 }
 
 function renderStep({ animate = false } = {}) {
-  const step = STEPS[state.currentStepIndex];
+  const step = activeSteps()[state.currentStepIndex];
   els.stageCategory.classList.add("hidden");
   els.stageComplete.classList.add("hidden");
   els.progressCard.classList.remove("hidden");
@@ -858,11 +963,14 @@ function renderStep({ animate = false } = {}) {
   const isDefect = step.key === "defect";
   els.stepKicker.textContent = step.required
     ? `Required Angle ${state.currentStepIndex + 1} of ${REQUIRED_ANGLES.length}`
-    : "Optional Extra Shot · Coin for Scale";
+    : "One close-up, only if something looks wrong";
   els.stepTitle.textContent = step.title;
-  els.stepHint.innerHTML = `<strong>${capitalize(state.garmentType)} guide:</strong> ${escapeHtml(
-    step.hints[state.garmentType]
-  )}`;
+  let hintText = step.hints[state.garmentType] || "";
+  if (isDefect && state.flaggedSpot) {
+    hintText += ` The counter flagged ${state.flaggedSpot}. Take a damage close-up of that spot.`;
+  }
+  els.stepHint.innerHTML = `<strong>${capitalize(state.garmentType)} guide:</strong> ${escapeHtml(hintText)}`;
+  els.viewfinderSvg.setAttribute("viewBox", VIEWFINDER_VIEWBOX);
   els.viewfinderSvg.innerHTML = buildViewfinderSvg(state.garmentType, step.key);
 
   const existingPhoto = isDefect
@@ -888,7 +996,7 @@ function renderStep({ animate = false } = {}) {
     els.viewfinderBox.classList.remove("is-fallback", "is-locked");
   } else {
     els.stepEmptyLabel.textContent = isDefect
-      ? "Optional: Capture visible defect with coin"
+      ? "Damage close-up, only if you see a mark"
       : `Ready for ${step.title} photo`;
     startCameraViewfinder();
   }
@@ -899,8 +1007,8 @@ function renderStep({ animate = false } = {}) {
       state.defectPhotos.length > 0 ? "pill pill-approve" : "pill pill-neutral";
     els.stepStatusPill.textContent =
       state.defectPhotos.length > 0
-        ? `${state.defectPhotos.length} Defect Shot${state.defectPhotos.length > 1 ? "s" : ""}`
-        : "Optional";
+        ? `${state.defectPhotos.length} Close-up${state.defectPhotos.length > 1 ? "s" : ""}`
+        : "Only if needed";
   } else if (existingPhoto) {
     const ok = existingPhoto.angle_ok !== false;
     els.stepStatusPill.className = ok ? "pill pill-approve" : "pill pill-review";
@@ -934,19 +1042,26 @@ function renderStep({ animate = false } = {}) {
   } else if (isDefect) {
     els.btnSnapPhoto.textContent =
       state.defectPhotos.length > 0
-        ? "Snap Another Defect Photo (with Coin)"
-        : "Snap Defect Photo (with Coin)";
+        ? "Snap another"
+        : "Add a damage close-up";
   } else {
     els.btnSnapPhoto.textContent = `Snap ${step.title} Photo`;
   }
 
+  renderMarkChoice(isDefect);
+
   // Navigation buttons
   els.btnPrevStep.disabled = state.currentStepIndex === 0;
   if (isDefect) {
-    els.btnNextStep.textContent =
-      state.defectPhotos.length > 0 ? "Continue to Disclosure →" : "Skip — No Visible Defects →";
+    if (state.markChoice === "clear" && state.defectPhotos.length === 0) {
+      els.btnNextStep.textContent = "Skip — Nothing Looks Wrong →";
+    } else if (state.defectPhotos.length > 0) {
+      els.btnNextStep.textContent = "Continue to Disclosure →";
+    } else {
+      els.btnNextStep.textContent = "Continue →";
+    }
   } else if (state.currentStepIndex === REQUIRED_ANGLES.length - 1) {
-    els.btnNextStep.textContent = "Next: Defect / Finish →";
+    els.btnNextStep.textContent = "Next: Damage close-up →";
   } else {
     els.btnNextStep.textContent = "Next Angle →";
   }
@@ -970,7 +1085,7 @@ function renderClipFeedback(angleKey) {
     els.clipBanner.className = "clip-feedback is-match";
     els.clipTitle.textContent = isDefect ? "Defect photo saved" : "Angle verified";
     els.clipDetail.textContent = isDefect
-      ? "Coin-scale defect close-up logged for store staff."
+      ? "Damage close-up logged for store staff."
       : `OpenCLIP confirmed ${angleKey}${sim ? ` (${sim} match)` : ""}. Ready for the next step.`;
     els.clipActions.innerHTML = `
       <button type="button" class="btn btn-primary btn-sm" id="btn-clip-continue">
@@ -1006,8 +1121,60 @@ function reopenLiveRetake() {
   renderStep({ animate: false });
 }
 
+function renderMarkChoice(isDefect) {
+  if (!els.markChoiceForm) return;
+  els.markChoiceForm.classList.toggle("hidden", !isDefect);
+  els.markChoiceForm.querySelectorAll('input[name="mark-seen"]').forEach((input) => {
+    input.checked = input.value === state.markChoice;
+  });
+  if (!isDefect || !defectStepBlockReason()) clearMarkChoiceError();
+}
+
+function clearMarkChoiceError() {
+  if (!els.markChoiceForm) return;
+  els.markChoiceError.hidden = true;
+  els.markCloseupError.hidden = true;
+  els.markChoiceForm.querySelectorAll('input[name="mark-seen"]').forEach((input) => {
+    input.classList.remove("user-invalid-fallback");
+    input.setAttribute("aria-invalid", "false");
+    input.removeAttribute("aria-describedby");
+  });
+}
+
+function showMarkChoiceError(kind) {
+  clearMarkChoiceError();
+  const choiceError = kind === "closeup" ? els.markCloseupError : els.markChoiceError;
+  const describedBy = kind === "closeup" ? "mark-closeup-error" : "mark-choice-error";
+  choiceError.hidden = false;
+  els.markChoiceForm.querySelectorAll('input[name="mark-seen"]').forEach((input) => {
+    const flagThis = kind === "choice" || input.checked;
+    if (flagThis) {
+      input.classList.add("user-invalid-fallback");
+      input.setAttribute("aria-invalid", "true");
+      input.setAttribute("aria-describedby", describedBy);
+    }
+  });
+  const focusTarget =
+    els.markChoiceForm.querySelector('input[name="mark-seen"]:checked') ||
+    els.markChoiceForm.querySelector('input[name="mark-seen"]');
+  if (focusTarget) focusTarget.focus();
+}
+
+function defectStepBlockReason() {
+  if (!state.markChoice) return "choice";
+  if (state.markChoice === "mark" && state.defectPhotos.length === 0) return "closeup";
+  return null;
+}
+
 function advanceStep() {
-  if (state.currentStepIndex < STEPS.length - 1) {
+  if (activeSteps()[state.currentStepIndex]?.key === "defect") {
+    const block = defectStepBlockReason();
+    if (block) {
+      showMarkChoiceError(block);
+      return;
+    }
+  }
+  if (state.currentStepIndex < activeSteps().length - 1) {
     state.currentStepIndex += 1;
     state.retakeLiveMode = false;
     renderStep({ animate: true });
@@ -1021,7 +1188,7 @@ function advanceStep() {
 
 async function handleFileSelected(file) {
   if (!file || !state.sessionId || state.isUploading) return;
-  const step = STEPS[state.currentStepIndex];
+  const step = activeSteps()[state.currentStepIndex];
   if (!step || step.key === "disclosure") return;
 
   stopCameraStream();
@@ -1066,6 +1233,7 @@ async function handleFileSelected(file) {
 
     if (step.key === "defect") {
       state.defectPhotos.push(photoRecord);
+      state.markChoice = "mark";
     } else {
       state.photosByAngle.set(step.key, photoRecord);
     }
@@ -1120,8 +1288,8 @@ function renderDisclosureStep() {
   if (missing.length > 0) {
     els.missingBox.classList.remove("hidden");
     els.missingText.textContent = `Missing: ${missing
-      .map((a) => STEPS.find((s) => s.key === a)?.title || capitalize(a))
-      .join(", ")}. Complete photo coverage improves your intake score.`;
+      .map((a) => activeSteps().find((s) => s.key === a)?.title || capitalize(a))
+      .join(", ")}.`;
   } else {
     els.missingBox.classList.add("hidden");
   }
@@ -1132,7 +1300,7 @@ async function handleFinishSubmit() {
   stopCameraStream();
 
   els.btnFinishSubmit.disabled = true;
-  els.btnFinishSubmit.innerHTML = `<span class="spinner spinner-dark" aria-hidden="true"></span> Sending to Counter…`;
+  els.btnFinishSubmit.innerHTML = `<span class="spinner spinner-dark" aria-hidden="true"></span> Sending…`;
 
   try {
     const payload = {
@@ -1157,7 +1325,7 @@ async function handleFinishSubmit() {
     showToast(`Could not complete session: ${err.message}`, "error", 6500);
   } finally {
     els.btnFinishSubmit.disabled = false;
-    els.btnFinishSubmit.textContent = "Finish & Send to Counter";
+    els.btnFinishSubmit.textContent = "Send to counter";
   }
 }
 
@@ -1172,18 +1340,53 @@ function stopScorePolling() {
   }
 }
 
+function resultGoal(score) {
+  const missing = Array.isArray(score.missing_angles) ? score.missing_angles : [];
+  const mismatched = Array.isArray(score.mismatched_angles) ? score.mismatched_angles : [];
+  const closeupOnly =
+    score.decision === "rejected_retake" &&
+    Boolean(score.closeup_needed) &&
+    missing.length === 0 &&
+    mismatched.length === 0;
+  if (closeupOnly) {
+    return "One close-up finishes the record. The score stays open until that spot is photographed.";
+  }
+  if (score.decision === "auto_approved") {
+    return "Log it. Staff still check the garment in hand.";
+  }
+  if (score.decision === "human_review") {
+    return "Borderline. Staff decide in hand.";
+  }
+  if (score.decision === "rejected_retake") {
+    return "Photo coverage is incomplete. Retake the flagged angles.";
+  }
+  if (score.decision === "rejected_upcycle") {
+    return "Declined for buy-in. Upcycle the materials, or talk trade-in.";
+  }
+  return "Finish photo coverage and damage disclosure.";
+}
+
+function isCloseupOnly(score) {
+  if (!score || score.decision !== "rejected_retake" || !score.closeup_needed) return false;
+  const missing = Array.isArray(score.missing_angles) ? score.missing_angles : [];
+  const mismatched = Array.isArray(score.mismatched_angles) ? score.mismatched_angles : [];
+  return missing.length === 0 && mismatched.length === 0;
+}
+
 function startScorePolling() {
   stopScorePolling();
   if (!state.sessionId) return;
+  const seenAt = state.latestScore?.updated_at || "";
 
   const check = async () => {
     try {
       const data = await apiJson(`/status/${encodeURIComponent(state.sessionId)}`);
-      if (data.score) {
-        state.latestScore = data.score;
-        stopScorePolling();
-        renderCompleteScreen(data.score);
-      }
+      const next = data.score;
+      if (!next) return;
+      if (seenAt && next.updated_at === seenAt) return;
+      state.latestScore = next;
+      stopScorePolling();
+      renderCompleteScreen(next);
     } catch (err) {
       console.warn("Phone score poll error:", err);
     }
@@ -1237,6 +1440,7 @@ function renderCompleteScreen(score) {
   els.phoneDecisionPill.textContent = pillText;
   els.phoneDecisionTitle.textContent = score.decision_label || pillText;
   els.phoneDecisionSummary.textContent = score.summary || "";
+  els.phoneDecisionGoal.textContent = resultGoal(score);
 
   els.phoneScoreTotal.textContent = `${total} / 100`;
   els.phoneCovText.textContent = `${cov} / 50`;
@@ -1248,11 +1452,21 @@ function renderCompleteScreen(score) {
   els.phoneDmgBar.className = `progress-fill is-${dmg >= 40 ? "approve" : dmg >= 25 ? "review" : "reject"}`;
 
   const retakeAngles = Array.isArray(score.retake_angles) ? score.retake_angles : [];
-  if (score.decision === "rejected_retake" && retakeAngles.length > 0) {
+  if (score.decision === "rejected_retake" && (retakeAngles.length > 0 || score.closeup_needed)) {
     els.phoneRetakeCard.classList.remove("hidden");
-    els.phoneRetakeText.textContent = `Please retake clearer photos for: ${retakeAngles
-      .map((a) => STEPS.find((s) => s.key === a)?.title || capitalize(a))
-      .join(", ")}.`;
+    if (isCloseupOnly(score)) {
+      els.phoneRetakeTitle.textContent = "Damage close-up";
+      els.phoneRetakeText.textContent = `Photograph ${score.closeup_needed}, then send the photos again. This holds the score. It is not a buy-in decline.`;
+      els.btnPhoneRetakeFlagged.textContent = "Shoot the close-up";
+    } else {
+      const names = retakeAngles
+        .filter((angle) => angle !== "defect")
+        .map((angle) => activeSteps().find((step) => step.key === angle)?.title || capitalize(angle));
+      const closeupBit = score.closeup_needed ? ` Also one damage close-up of ${score.closeup_needed}.` : "";
+      els.phoneRetakeTitle.textContent = "Retake Flagged Angles";
+      els.phoneRetakeText.textContent = `Please retake clearer photos for: ${names.join(", ") || "the flagged angles"}.${closeupBit}`;
+      els.btnPhoneRetakeFlagged.textContent = "Retake Flagged Photos";
+    }
   } else {
     els.phoneRetakeCard.classList.add("hidden");
   }
@@ -1305,7 +1519,7 @@ function bindEvents() {
 
   // Primary Shutter / Retake Button
   els.btnSnapPhoto.addEventListener("click", () => {
-    const step = STEPS[state.currentStepIndex];
+    const step = activeSteps()[state.currentStepIndex];
     const isDefect = step?.key === "defect";
     const existingPhoto = !isDefect ? state.photosByAngle.get(step?.key) : null;
     const showingPreview = Boolean(existingPhoto?.photo_url) && !state.retakeLiveMode && !isDefect;
@@ -1344,8 +1558,33 @@ function bindEvents() {
 
   els.btnNextStep.addEventListener("click", advanceStep);
 
+  if (els.markChoiceForm) {
+    els.markChoiceForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      advanceStep();
+    });
+    els.markChoiceForm.addEventListener("change", (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || input.name !== "mark-seen") return;
+      state.markChoice = input.value === "mark" ? "mark" : "clear";
+      clearMarkChoiceError();
+      const step = activeSteps()[state.currentStepIndex];
+      if (step?.key === "defect") {
+        if (state.markChoice === "clear" && state.defectPhotos.length === 0) {
+          els.btnNextStep.textContent = "Skip — Nothing Looks Wrong →";
+        } else if (state.defectPhotos.length > 0) {
+          els.btnNextStep.textContent = "Continue to Disclosure →";
+        } else {
+          els.btnNextStep.textContent = "Continue →";
+        }
+      }
+    });
+  }
+
   els.btnJumpMissing.addEventListener("click", () => {
-    const firstMissingIdx = REQUIRED_ANGLES.findIndex((a) => !state.photosByAngle.has(a));
+    const firstMissingIdx = activeSteps().findIndex(
+      (step) => step.required && !state.photosByAngle.has(step.key)
+    );
     if (firstMissingIdx >= 0) {
       state.currentStepIndex = firstMissingIdx;
       state.retakeLiveMode = false;
@@ -1371,11 +1610,19 @@ function bindEvents() {
 
   els.btnPhoneRetakeFlagged.addEventListener("click", () => {
     stopScorePolling();
-    const flagged = state.latestScore?.retake_angles?.[0];
-    const targetIdx = STEPS.findIndex((s) => s.key === flagged);
+    const score = state.latestScore || {};
+    const angles = Array.isArray(score.retake_angles) ? score.retake_angles : [];
+    const closeupOnly = isCloseupOnly(score);
+    if (closeupOnly) {
+      state.markChoice = "mark";
+      state.flaggedSpot = String(score.closeup_needed || "");
+    }
+    const targetKey = closeupOnly ? "defect" : angles.find((angle) => angle !== "defect") || angles[0];
+    const targetIdx = activeSteps().findIndex((step) => step.key === targetKey);
     state.currentStepIndex = targetIdx >= 0 ? targetIdx : 0;
     state.retakeLiveMode = true;
     renderStep({ animate: true });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   });
 
   // Always release hardware camera tracks cleanly when navigating away or hiding page
@@ -1385,7 +1632,7 @@ function bindEvents() {
     if (document.hidden) {
       stopCameraStream();
     } else if (state.view === "photo" && !state.isUploading) {
-      const step = STEPS[state.currentStepIndex];
+      const step = activeSteps()[state.currentStepIndex];
       const existing = step?.key !== "defect" ? state.photosByAngle.get(step?.key) : null;
       if (!existing || state.retakeLiveMode || step?.key === "defect") {
         startCameraViewfinder();

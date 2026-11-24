@@ -7,6 +7,7 @@ import io
 import json
 import re
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 import openpyxl
@@ -625,6 +626,119 @@ def test_admin_settings_and_diagnostics_endpoints(api_env: dict) -> None:
     assert CANARY_API_KEY not in json.dumps(diag_body)
 
 
+def test_clear_ledger_keeps_settings_and_drops_uploads(api_env: dict, tmp_path: Path) -> None:
+    """Clearing the ledger removes sessions and their uploads, and leaves runtime settings."""
+    import app.main as main_mod
+
+    client: TestClient = api_env["client"]
+    seeded = client.post(
+        "/admin/settings",
+        json={
+            "vision_deployment": "gpt-4.1-mini",
+            "temperature": 0.33,
+            "public_base_url": "https://moto-demo.trycloudflare.com",
+            "auto_score_on_complete": False,
+        },
+    )
+    assert seeded.status_code == 200, seeded.text
+
+    partial = client.post(
+        "/admin/settings",
+        json={
+            "vision_deployment": "gpt-4.1",
+            "public_base_url": "https://phone.example",
+            "auto_score_on_complete": True,
+        },
+    )
+    assert partial.status_code == 200, partial.text
+    assert partial.json()["settings"]["temperature"] == 0.33
+    assert partial.json()["settings"]["poll_interval_ms"] == 2000
+
+    sess = client.post("/sessions", json={"garment_type": "pants"}).json()
+    session_id = sess["session_id"]
+    api_env["created_sessions"].append(session_id)
+    uploaded = client.post(
+        "/upload",
+        data={"session_id": session_id, "angle": "labels"},
+        files={"file": ("labels.jpg", _make_jpeg_bytes(), "image/jpeg")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    session_dir = main_mod.UPLOADS_DIR / session_id
+    assert session_dir.is_dir()
+
+    scored = client.post(
+        "/score",
+        json={"session_id": session_id, "disclosure": {"crash": False, "usage": "light"}},
+    )
+    assert scored.status_code == 200, scored.text
+
+    sentinel = tmp_path / "keep-me.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    assert main_mod._remove_ledger_uploads(["../etc", "", "not a dir"], [str(sentinel)]) == 0
+    assert sentinel.is_file()
+
+    cleared = client.post("/admin/ledger/clear")
+    assert cleared.status_code == 200, cleared.text
+    body = cleared.json()
+    assert body["cleared"] is True
+    assert body["settings_kept"] is True
+    assert body["sessions"] >= 1
+    assert body["photos"] >= 1
+    assert body["scores"] >= 1
+    assert not session_dir.exists()
+    assert sentinel.is_file()
+
+    assert client.get("/sessions").json()["sessions"] == []
+    assert client.get("/review-queue").json()["items"] == []
+    assert client.get("/admin/diagnostics").json()["database"]["session_count"] == 0
+    assert client.get(f"/status/{session_id}").status_code == 404
+
+    kept = client.get("/admin/settings").json()["settings"]
+    assert kept["temperature"] == 0.33
+    assert kept["vision_deployment"] == "gpt-4.1"
+    assert kept["public_base_url"] == "https://phone.example"
+    assert kept["auto_score_on_complete"] is True
+    assert kept["max_tokens"] == 1800
+
+    again = client.post("/admin/ledger/clear")
+    assert again.status_code == 200, again.text
+    assert again.json()["sessions"] == 0
+
+
+def test_counter_copy_is_short_and_settings_form_is_small() -> None:
+    """Home stays on photo coverage wording, and Admin no longer shows the extra runtime knobs."""
+    static_dir = Path(__file__).resolve().parent.parent / "app" / "static"
+    index = (static_dir / "index.html").read_text(encoding="utf-8")
+    laptop = (static_dir / "laptop.js").read_text(encoding="utf-8")
+    lowered = index.lower()
+    assert "photo coverage" in lowered
+    assert "damage disclosure" in lowered
+    assert 'id="clear-ledger-dialog"' in index
+    assert 'id="btn-clear-ledger"' in index
+    assert 'method="dialog"' in index
+    assert "autofocus" in index
+    assert 'value="cancel"' in index
+    assert 'value="clear"' in index
+    for removed in (
+        'id="set-temperature"',
+        'id="set-max-tokens"',
+        'id="set-poll-interval"',
+        'id="set-clip-threshold"',
+        'id="set-auto-approve-min"',
+        'id="set-human-review-min"',
+        "Runtime Configuration",
+        "Hard Compliance Gate",
+    ):
+        assert removed not in index
+    save_fn = laptop.split("async function handleSaveSettings", 1)[1].split(
+        "function openClearLedgerDialog", 1
+    )[0]
+    for hidden_key in ("temperature", "max_tokens", "poll_interval_ms", "clip_warn_threshold"):
+        assert hidden_key not in save_fn
+    assert "/admin/ledger/clear" in laptop
+    assert "showModal" in laptop
+
+
 def test_zero_personal_names_across_app() -> None:
     """No hardcoded staff or owner personal names appear anywhere in app/."""
     app_root = Path(__file__).resolve().parent.parent / "app"
@@ -846,7 +960,7 @@ def test_passcode_unlock_rate_limits_and_zero_secret_leak(
 def test_admin_write_lock_and_upload_size_limit(
     api_env: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """ALLOW_PUBLIC_ADMIN_WRITE=false locks POST /admin/settings; MAX_UPLOAD_BYTES returns 413."""
+    """ALLOW_PUBLIC_ADMIN_WRITE=false locks admin write endpoints; MAX_UPLOAD_BYTES returns 413."""
     client: TestClient = api_env["client"]
     canary_pass = "ADMIN_UNLOCK_PASS_42"
     monkeypatch.setenv("ALLOW_PUBLIC_ADMIN_WRITE", "false")
@@ -856,6 +970,8 @@ def test_admin_write_lock_and_upload_size_limit(
     # Without passcode -> 403
     locked = client.post("/admin/settings", json={"poll_interval_ms": 3000})
     assert locked.status_code == 403
+    locked_clear = client.post("/admin/ledger/clear")
+    assert locked_clear.status_code == 403
 
     # With valid passcode -> 200
     unlocked = client.post(
@@ -865,6 +981,13 @@ def test_admin_write_lock_and_upload_size_limit(
     )
     assert unlocked.status_code == 200, unlocked.text
     assert unlocked.json()["settings"]["poll_interval_ms"] == 3000
+
+    unlocked_clear = client.post(
+        "/admin/ledger/clear",
+        headers={"X-Live-Passcode": canary_pass},
+    )
+    assert unlocked_clear.status_code == 200, unlocked_clear.text
+    assert unlocked_clear.json()["cleared"] is True
 
     # Oversized upload -> 413
     sid = client.post("/sessions", json={"garment_type": "jacket"}).json()["session_id"]
@@ -891,3 +1014,65 @@ def test_dockerignore_excludes_confidential_files_and_docs_compliance() -> None:
     assert not PERSONAL_NAMES_RE.search(docs_index)
     assert not re.search(r"\berp\b", docs_index, re.IGNORECASE)
 
+
+def test_viewfinder_is_fullscreen_with_pants_fold_rectangle() -> None:
+    """The in-line camera fills the phone, and pants folds use a rectangle."""
+    static_dir = Path(__file__).resolve().parent.parent / "app" / "static"
+    css = (static_dir / "styles.css").read_text(encoding="utf-8")
+    phone_html = (static_dir / "phone.html").read_text(encoding="utf-8")
+    phone_js = (static_dir / "phone.js").read_text(encoding="utf-8")
+    laptop_js = (static_dir / "laptop.js").read_text(encoding="utf-8")
+    scoring = (
+        Path(__file__).resolve().parent.parent / "app" / "scoring_engine.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'viewBox="0 0 300 400"' in phone_html
+    assert "0 0 300 400" in phone_js
+    assert "#stage-photo:not(.hidden)" in css
+    assert "100dvh" in css
+    assert "72dvh" not in css
+    assert "aspect-ratio: 3 / 4" not in css
+    assert "M162 44 Q200 66 238 44" not in phone_js
+    assert 'transform="translate(300 0) scale(-1 1)"' in phone_js
+    assert "visibleVideoRect" in phone_js
+    assert "ideal: 0.75" in phone_js
+    assert "JACKET_OUTLINE" in phone_js and "PANTS_OUTLINE" in phone_js
+    assert 'rect x="86" y="46" width="128" height="308"' in phone_js
+    assert (
+        'const PANTS_STEP_ORDER = ["front", "back", "left", "right", "inside", "labels", "defect", "disclosure"]'
+        in phone_js
+    )
+    assert "Left fold" in phone_js
+    assert "Right fold" in phone_js
+    assert "Left fold" in laptop_js and "Right fold" in laptop_js
+    for label, text in (
+        ("phone.html", phone_html),
+        ("phone.js", phone_js),
+        ("laptop.js", laptop_js),
+        ("scoring_engine.py", scoring),
+    ):
+        assert "coin" not in text.lower(), label
+
+
+def test_readable_session_ids_by_garment_and_day(api_env: dict) -> None:
+    """New sessions read RL-pants-YYYY-MM-DD, and a second same-day session gets -2."""
+    client: TestClient = api_env["client"]
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    first = client.post("/sessions", json={"garment_type": "pants"}).json()
+    api_env["created_sessions"].append(first["session_id"])
+    assert first["session_id"] == f"RL-pants-{today}"
+
+    second = client.post("/sessions", json={"garment_type": "pants"}).json()
+    api_env["created_sessions"].append(second["session_id"])
+    assert second["session_id"] == f"RL-pants-{today}-2"
+
+    jacket = client.post("/sessions", json={"garment_type": "jacket"}).json()
+    api_env["created_sessions"].append(jacket["session_id"])
+    assert jacket["session_id"] == f"RL-jacket-{today}"
+
+    patched = client.patch(
+        f"/sessions/{jacket['session_id']}",
+        json={"garment_type": "pants"},
+    ).json()
+    assert patched["session_id"] == jacket["session_id"]

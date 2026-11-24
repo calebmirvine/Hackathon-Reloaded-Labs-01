@@ -25,6 +25,103 @@ _CE_NA_NOTE = (
     "label does not reduce the photo coverage + damage disclosure score."
 )
 
+_CE_CLASSES = {"A", "AA", "AAA", "B", "C"}
+_ARMOUR_CLASSES = {"A", "AA", "AAA"}
+
+# Printed-class wording from the shop's EN 17092 explainer. Disclosure only:
+# this intake does not repeat a lab abrasion, tear, or seam test, and never
+# reports a speed as if it had been measured here.
+_CLASS_DISCLOSURE = {
+    "AAA": (
+        "Printed class AAA. On the label this is the highest abrasion class, and impact "
+        "protectors are part of that class at the shoulders, elbows, hips, and knees. "
+        "This is the printed class, not a test this intake performed."
+    ),
+    "AA": (
+        "Printed class AA. On the label this is a touring and everyday abrasion class, "
+        "and impact protectors are part of that class at the shoulders, elbows, hips, and knees. "
+        "This is the printed class, not a test this intake performed."
+    ),
+    "A": (
+        "Printed class A. On the label this is a lighter urban and summer abrasion class. "
+        "Shoulders, elbows, and knees are part of that class; hips are optional. "
+        "This is the printed class, not a test this intake performed."
+    ),
+    "B": (
+        "Printed class B. On the label the abrasion level matches class A, and the garment "
+        "is sold without impact protectors. This is the printed class, not a test this intake performed."
+    ),
+    "C": (
+        "Printed class C. On the label this is an armour holder only, with no abrasion class. "
+        "This is the printed class, not a test this intake performed."
+    ),
+}
+
+
+def _normalize_ce_label(value: Any) -> str:
+    raw = str(value or "none").strip()
+    upper = raw.upper()
+    if upper in _CE_CLASSES:
+        return upper
+    lowered = raw.lower()
+    if lowered in {"none", "illegible"}:
+        return lowered
+    return "none"
+
+
+def _read_intake_signals(vision_result: dict[str, Any] | None) -> dict[str, Any]:
+    """Normalize riding-gear, protector, stain, and close-up fields from the vision JSON.
+
+    Missing keys stay unspecified so older payloads keep the previous score.
+    A rider note cannot override these photo findings; callers pass only the vision fields.
+    """
+    vision = vision_result if isinstance(vision_result, dict) else {}
+    labels = vision.get("extracted_labels") if isinstance(vision.get("extracted_labels"), dict) else {}
+    ce_label = _normalize_ce_label(labels.get("ce_label"))
+
+    if "riding_gear" in vision:
+        riding = str(vision.get("riding_gear") or "").strip().lower()
+        riding_gear = riding if riding in {"yes", "no", "uncertain"} else "unspecified"
+    else:
+        riding_gear = "unspecified"
+
+    if "protector_status" in vision:
+        protector = str(vision.get("protector_status") or "").strip().lower()
+        protector_status = (
+            protector
+            if protector in {"intact", "failed", "missing", "not_required", "unknown"}
+            else "unspecified"
+        )
+    else:
+        protector_status = "unspecified"
+
+    # Unproven armour is not a failure. Class B is sold without impact protectors.
+    if protector_status == "missing" and ce_label in {"none", "illegible"}:
+        protector_status = "unknown"
+    elif protector_status == "missing" and ce_label == "B":
+        protector_status = "not_required"
+
+    if "stain_kind" in vision:
+        stain = str(vision.get("stain_kind") or "").strip().lower()
+        stain_kind = stain if stain in {"none", "cosmetic", "contamination"} else "none"
+    else:
+        stain_kind = "none"
+
+    closeup_needed: str | None = None
+    if "closeup_needed" in vision and vision.get("closeup_needed") is not None:
+        text = str(vision.get("closeup_needed")).strip()
+        if text and text.lower() not in {"null", "none", "false"}:
+            closeup_needed = text[:160]
+
+    return {
+        "ce_label": ce_label,
+        "riding_gear": riding_gear,
+        "protector_status": protector_status,
+        "stain_kind": stain_kind,
+        "closeup_needed": closeup_needed,
+        "class_disclosure": _CLASS_DISCLOSURE.get(ce_label),
+    }
+
 
 def _as_bool(value: Any) -> bool:
     if isinstance(value, bool):
@@ -253,6 +350,13 @@ def compute_score(
                 retake_angles.append("inside")
 
     # 4. Detect Hard Compliance Gate triggers (NEVER recommend buy-in on compromised gear)
+    signals = _read_intake_signals(vision_result if isinstance(vision_result, dict) else None)
+    riding_gear = signals["riding_gear"]
+    protector_status = signals["protector_status"]
+    stain_kind = signals["stain_kind"]
+    closeup_needed = signals["closeup_needed"]
+    ce_label = signals["ce_label"]
+
     hard_gate_flags = (
         vision_result.get("hard_gate_flags")
         if isinstance(vision_result, dict) and isinstance(vision_result.get("hard_gate_flags"), dict)
@@ -261,8 +365,9 @@ def compute_score(
     crash_declared = _as_bool(disclosure.get("crash"))
     contamination_declared = _as_bool(disclosure.get("contamination"))
     crash_evident = bool(hard_gate_flags.get("crash_evident", False))
-    contamination_evident = bool(hard_gate_flags.get("contamination_evident", False))
+    contamination_evident = bool(hard_gate_flags.get("contamination_evident", False)) or stain_kind == "contamination"
     zone1_breach_or_repair = bool(hard_gate_flags.get("zone1_breach_or_repair", False))
+    protector_missing_required = protector_status == "missing" and ce_label in _ARMOUR_CLASSES
 
     hard_gate_reasons: list[str] = []
     if crash_declared:
@@ -273,6 +378,14 @@ def compute_score(
         hard_gate_reasons.append("Contamination disclosed or visible in intake photos.")
     if zone1_breach_or_repair:
         hard_gate_reasons.append("Visible damage, breach, or repair in a Zone 1 protective area.")
+    if protector_status == "failed":
+        hard_gate_reasons.append(
+            "A protector is visibly broken, cracked, displaced, or out of its pocket."
+        )
+    if protector_missing_required:
+        hard_gate_reasons.append(
+            f"Printed class {ce_label} includes impact protectors, and a required protector is missing."
+        )
 
     for item in checklist:
         if not item["passed"] and item["severity"] == "hard_gate":
@@ -343,13 +456,35 @@ def compute_score(
         elif major_damage_failures >= 3 and damage_disclosure_score == 0:
             total_score = min(total_score, min(45, reject_max))
 
+    # Holds that stay in human review without a hard gate. Applied only when the
+    # vision payload actually sent the field (unspecified does not change the score).
+    review_hold: list[str] = []
+    if not hard_gate_triggered:
+        if stain_kind == "cosmetic":
+            review_hold.append(
+                "A light stain is noted for in-hand review and is not treated as contamination."
+            )
+        if protector_status == "unknown" and ce_label in _ARMOUR_CLASSES:
+            review_hold.append(
+                "Protectors for this printed class were not confirmed in the photos. "
+                "Staff check the pockets in hand."
+            )
+        if protector_status == "missing" and ce_label == "C":
+            review_hold.append(
+                "This printed class is an armour holder, and a protector was not shown. "
+                "Staff check it in hand."
+            )
+        if review_hold and total_score >= aa_min:
+            excess = total_score - review_max
+            damage_disclosure_score = max(0, damage_disclosure_score - excess)
+            total_score = photo_coverage_score + damage_disclosure_score
+
     # 7. Extract & enrich labels (explicitly preserving NA CE-label neutrality)
     raw_labels = (
         vision_result.get("extracted_labels")
         if isinstance(vision_result, dict) and isinstance(vision_result.get("extracted_labels"), dict)
         else {}
     )
-    ce_label = str(raw_labels.get("ce_label") or "none").strip()
     material_group = str(raw_labels.get("material_group") or "unknown").strip().lower()
     if material_group not in {"leather", "textile", "denim_aramid", "unknown"}:
         material_group = "unknown"
@@ -361,8 +496,10 @@ def compute_score(
         "composition": str(raw_labels.get("composition") or "not determinable").strip(),
         "material_group": material_group,
     }
-    if ce_label.lower() == "none":
+    if ce_label == "none":
         extracted_labels["ce_note"] = _CE_NA_NOTE
+    if signals["class_disclosure"]:
+        extracted_labels["class_disclosure"] = signals["class_disclosure"]
 
     # 8. Deterministic Intake Routing
     upcycle_plan: dict[str, Any] | None = None
@@ -397,6 +534,20 @@ def compute_score(
         decision_label = f"Auto-Approved & Logged ({aa_min}–100)"
         buy_in_recommended = True
 
+    has_defect_photo = any(
+        isinstance(photo, dict) and str(photo.get("angle", "")).strip().lower() == "defect"
+        for photo in (photos or [])
+    )
+    closeup_missing = bool(closeup_needed) and not has_defect_photo
+    if closeup_missing and not hard_gate_triggered:
+        if "defect" not in retake_angles:
+            retake_angles.append("defect")
+        decision = "rejected_retake"
+        buy_in_recommended = False
+        upcycle_plan = None
+        if not (missing_angles or mismatched_angles):
+            decision_label = "One damage close-up required before this score is final"
+
     protection_disclosure_status = _compute_protection_disclosure_status(
         extracted_labels=extracted_labels,
         disclosure=disclosure,
@@ -414,11 +565,25 @@ def compute_score(
             "routed to Moto Reloaded's upcycling and retirement pathway."
         )
     elif decision == "rejected_retake":
-        angles_str = ", ".join(retake_angles) if retake_angles else "required angles"
-        summary = (
-            f"Photo coverage + damage disclosure score is {total_score}/100. "
-            f"Please retake or upload clearer photos for: {angles_str}."
-        )
+        angle_names = [angle for angle in retake_angles if angle != "defect"]
+        if closeup_missing and not angle_names:
+            summary = (
+                f"Photo coverage + damage disclosure score is {total_score}/100. "
+                f"One damage close-up of the flagged spot ({closeup_needed}) is needed "
+                "before this score is final. This is a retake, not a buy-in decline."
+            )
+        else:
+            angles_str = ", ".join(angle_names or retake_angles) if (angle_names or retake_angles) else "required angles"
+            closeup_sentence = ""
+            if closeup_missing:
+                closeup_sentence = (
+                    f" One damage close-up of the flagged spot ({closeup_needed}) is also needed "
+                    "before this score is final."
+                )
+            summary = (
+                f"Photo coverage + damage disclosure score is {total_score}/100. "
+                f"Please retake or upload clearer photos for: {angles_str}.{closeup_sentence}"
+            )
     elif decision == "rejected_upcycle":
         summary = (
             f"Photo coverage + damage disclosure score is {total_score}/100. "
@@ -426,9 +591,10 @@ def compute_score(
         )
     elif decision == "human_review":
         extra = f" {vision_summary}" if vision_summary else ""
+        hold = f" {' '.join(review_hold)}" if review_hold else ""
         summary = (
             f"Photo coverage + damage disclosure score is {total_score}/100. "
-            f"Queued for store staff in-hand physical inspection.{extra}"
+            f"Queued for store staff in-hand physical inspection.{hold}{extra}"
         )
     else:
         extra = f" {vision_summary}" if vision_summary else ""
@@ -454,7 +620,15 @@ def compute_score(
             "crash_evident": crash_evident,
             "contamination_evident": contamination_evident,
             "zone1_breach_or_repair": zone1_breach_or_repair,
+            "not_riding_gear": False,
+            "protector_failed": protector_status == "failed",
+            "protector_missing_required": protector_missing_required,
         },
+        "riding_gear": riding_gear,
+        "protector_status": protector_status,
+        "stain_kind": stain_kind,
+        "class_disclosure": signals["class_disclosure"],
+        "closeup_needed": closeup_needed,
         "missing_angles": missing_angles,
         "mismatched_angles": mismatched_angles,
         "retake_angles": retake_angles,

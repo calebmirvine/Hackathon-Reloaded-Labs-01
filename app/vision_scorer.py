@@ -26,7 +26,10 @@ load_dotenv()
 _VALID_CATEGORIES = {"photo_coverage", "damage_disclosure"}
 _VALID_SEVERITIES = {"none", "minor", "major", "hard_gate"}
 _VALID_MATERIAL_GROUPS = {"leather", "textile", "denim_aramid", "unknown"}
-_VALID_CE_LABELS = {"none", "A", "AA", "AAA", "illegible"}
+_VALID_CE_LABELS = {"none", "A", "AA", "AAA", "B", "C", "illegible"}
+_VALID_RIDING_GEAR = {"yes", "no", "uncertain"}
+_VALID_PROTECTOR = {"intact", "failed", "missing", "not_required", "unknown"}
+_VALID_STAIN = {"none", "cosmetic", "contamination"}
 
 _SYSTEM_PROMPT = """\
 You are Moto Reloaded's store intake photo-coverage and damage-disclosure assistant for motorcycle jackets and pants ONLY (never helmets).
@@ -35,17 +38,26 @@ NON-NEGOTIABLE COMPLIANCE RULES:
 1. WORDING ONLY: Use "photo coverage" and "damage disclosure" wording ONLY. NEVER claim, imply, or state that this tool or Moto Reloaded assesses, certifies, tests, or guarantees safety or protective performance.
 2. PRIVACY: NEVER identify, name, or describe any person or face if inadvertently visible in a photo.
 3. FIBRES & DISCLOSURE LIMIT: Garment fibres cannot be judged visually from photos alone; report composition ONLY from legible label photos, otherwise return "not determinable".
-4. NORTH AMERICA CE-LABEL NEUTRALITY: EN 17092 CE labels (A, AA, AAA) are European and NOT required in North America. Absence of a CE label ("none") tells you NOTHING and MUST NEVER fail a checklist item or be treated as a defect. However, if a label photo is blurry or out-of-focus so text cannot be read, treat that blurred label photo as a missing/illegible label photo ("photo_coverage" failure).
+4. NORTH AMERICA CE-LABEL NEUTRALITY: EN 17092 CE labels (A, AA, AAA, B, C) are European and NOT required in North America. Absence of a CE label ("none") tells you NOTHING and MUST NEVER fail a checklist item, fail a protector check, or be treated as a defect. However, if a label photo is blurry or out-of-focus so text cannot be read, treat that blurred label photo as a missing/illegible label photo ("photo_coverage" failure). When a label is readable, record the printed class only. EN 17092-2 is AAA, -3 is AA, -4 is A, -5 is B, -6 is C. Never invent a class. Never report kilometres per hour as if this intake measured them. Never treat a condition grade as a CE class.
 5. HARD GATE DETECTION (NEVER RECOMMEND BUYING COMPROMISED GEAR):
    - crash_evident: Visible slide marks, road rash, melted/abraded impact zones, or crash damage.
-   - contamination_evident: Visible heavy oil, fuel, chemical, mold, or unsanitary biological contamination.
-   - zone1_breach_or_repair: ANY visible tear, hole, split seam, through-abrasion, patch, or repair inside a Zone 1 area.
+   - contamination_evident: Visible heavy oil, fuel, chemical, mold, or unsanitary biological contamination. A light cosmetic stain is NOT contamination_evident.
+   - zone1_breach_or_repair: ANY visible tear, hole, split seam, through-abrasion, patch, or repair inside a Zone 1 area. A broken protector with an intact shell is a protector failure, not a shell breach, unless the shell is also torn.
 6. GARMENT-SPECIFIC ZONE 1 MAPPING:
    - JACKET Zone 1: (1) Left shoulder, (2) Right shoulder, (3) Left elbow & forearm, (4) Right elbow & forearm, (5) Upper back.
    - PANTS Zone 1: (1) Left hip & outer thigh, (2) Right hip & outer thigh, (3) Left knee, (4) Right knee, (5) Seat.
    - CRITICAL PANTS EXCEPTION: Normal sitting sheen/gloss on the seat of motorcycle pants with NO fibre wear or damage is Zone 2 wear, NOT a Zone 1 scuff or breach.
-7. DETAIL PRIORITIES: Inspect stitching, yarn integrity, seams, zippers/snaps/hardware, interior lining/protective-layer placement, fading, Zone 2/3 wear, and coin-for-scale defect close-ups if provided.
+7. DETAIL PRIORITIES: Inspect stitching, yarn integrity, seams, zippers/snaps/hardware, interior lining/protective-layer placement, fading, Zone 2/3 wear, and damage close-ups if provided.
 8. CONTRADICTION CHECK: Compare the rider's declared disclosure (crash history, usage level, notes) against what is visible in the photos. Set contradiction_flagged=true with a concise contradiction_reason if the photos clearly contradict the rider's disclosure (for example, rider declared no crash or light use while photos show crash abrasion, heavy fading/wear, or Zone 1 repair).
+9. RIDING GEAR: Set riding_gear to "yes". Do not classify work pants, fashion pants, or street clothes. This field does not change the score.
+10. PROTECTORS, separate from a fabric tear:
+   - failed: a pad is visibly broken, cracked, displaced, or the pocket is torn open. This is failed even when no CE label is readable.
+   - missing: a required pocket is empty AND a readable class is AAA, AA, or A.
+   - not_required: readable class B (sold without impact protectors). Class B with no armour is not a failure. Also use not_required for class C only when no protector is expected in the photos and nothing is broken.
+   - unknown: no CE label, or armour simply is not proven in the photo. Do not call unseen armour "failed" or "missing".
+   - intact: protectors are visible and look whole.
+11. STAINS: stain_kind "contamination" together with contamination_evident true only for a heavy oil, fuel, or chemical soak. A light cosmetic mark is stain_kind "cosmetic" and MUST NOT set contamination_evident. No stain is "none".
+12. CLOSE-UP: If one localized mark, tear, broken pad, or stain is visible and no damage close-up is in the set, set closeup_needed to a short place name such as "left shoulder pad" or "right thigh oil soak". Otherwise null. Do not ask for every checklist frame. Do not ask for a coin.
 
 Return ONLY a valid JSON object with this exact schema:
 {
@@ -150,7 +162,7 @@ Return ONLY a valid JSON object with this exact schema:
   "extracted_labels": {
     "brand": "Brand name or 'Unknown'",
     "size": "Size or 'Unknown'",
-    "ce_label": "none | A | AA | AAA | illegible",
+    "ce_label": "none | A | AA | AAA | B | C | illegible",
     "composition": "Exact legible fibre percentages or 'not determinable'",
     "material_group": "leather | textile | denim_aramid | unknown"
   },
@@ -159,6 +171,10 @@ Return ONLY a valid JSON object with this exact schema:
     "contamination_evident": false,
     "zone1_breach_or_repair": false
   },
+  "riding_gear": "yes | no | uncertain",
+  "protector_status": "intact | failed | missing | not_required | unknown",
+  "stain_kind": "none | cosmetic | contamination",
+  "closeup_needed": null,
   "contradiction_flagged": false,
   "contradiction_reason": null,
   "summary": "2-sentence factual summary of photo coverage and visible damage disclosure for store staff."
@@ -236,7 +252,7 @@ def _normalize_vision_response(raw: dict[str, Any]) -> dict[str, Any]:
 
     raw_labels = raw.get("extracted_labels") if isinstance(raw.get("extracted_labels"), dict) else {}
     ce_val = str(raw_labels.get("ce_label", "none") or "none").strip()
-    if ce_val.upper() in {"A", "AA", "AAA"}:
+    if ce_val.upper() in {"A", "AA", "AAA", "B", "C"}:
         ce_val = ce_val.upper()
     elif ce_val.lower() in {"none", "illegible"}:
         ce_val = ce_val.lower()
@@ -269,6 +285,27 @@ def _normalize_vision_response(raw: dict[str, Any]) -> dict[str, Any]:
         "zone1_breach_or_repair": bool(raw_flags.get("zone1_breach_or_repair", False)),
     }
 
+    riding_raw = str(raw.get("riding_gear") or "").strip().lower()
+    riding_gear = riding_raw if riding_raw in _VALID_RIDING_GEAR else "yes"
+
+    protector_raw = str(raw.get("protector_status") or "").strip().lower()
+    protector_status = protector_raw if protector_raw in _VALID_PROTECTOR else "unknown"
+
+    stain_raw = str(raw.get("stain_kind") or "").strip().lower()
+    stain_kind = stain_raw if stain_raw in _VALID_STAIN else "none"
+    if stain_kind == "contamination":
+        hard_gate_flags["contamination_evident"] = True
+    elif stain_kind == "cosmetic":
+        hard_gate_flags["contamination_evident"] = False
+
+    closeup_raw = raw.get("closeup_needed")
+    closeup_needed: str | None
+    if closeup_raw is None:
+        closeup_needed = None
+    else:
+        closeup_text = str(closeup_raw).strip()
+        closeup_needed = None if closeup_text.lower() in {"", "null", "none", "false"} else closeup_text[:160]
+
     contradiction_flagged = bool(raw.get("contradiction_flagged", False))
     raw_reason = raw.get("contradiction_reason")
     contradiction_reason = (
@@ -283,6 +320,10 @@ def _normalize_vision_response(raw: dict[str, Any]) -> dict[str, Any]:
         "checklist": checklist,
         "extracted_labels": extracted_labels,
         "hard_gate_flags": hard_gate_flags,
+        "riding_gear": riding_gear,
+        "protector_status": protector_status,
+        "stain_kind": stain_kind,
+        "closeup_needed": closeup_needed,
         "contradiction_flagged": contradiction_flagged,
         "contradiction_reason": contradiction_reason,
         "summary": summary,
@@ -339,6 +380,10 @@ def _empty_photos_fallback(
             "contamination_evident": False,
             "zone1_breach_or_repair": False,
         },
+        "riding_gear": "yes",
+        "protector_status": "unknown",
+        "stain_kind": "none",
+        "closeup_needed": None,
         "contradiction_flagged": False,
         "contradiction_reason": None,
         "summary": f"No readable {garment_type} photos were available for photo coverage and damage disclosure review.",
@@ -584,6 +629,10 @@ def _demo_rubric_evaluation(
         "checklist": checklist,
         "extracted_labels": extracted_labels,
         "hard_gate_flags": hard_gate_flags,
+        "riding_gear": "yes",
+        "protector_status": "unknown",
+        "stain_kind": "contamination" if notes_mention_contamination else "none",
+        "closeup_needed": None,
         "contradiction_flagged": False,
         "contradiction_reason": None,
         "summary": summary,

@@ -645,3 +645,212 @@ def test_configurable_thresholds_preserve_locked_hard_gate() -> None:
     assert hard_gated["buy_in_recommended"] is False
     assert hard_gated["hard_gate_triggered"] is True
     assert hard_gated.get("upcycle_plan")
+
+
+def _score_clean(**vision_fields):
+    vision = make_clean_vision_result()
+    vision.update(vision_fields)
+    return compute_score(
+        vision_result=vision,
+        photos=make_photos(),
+        garment_type="pants",
+        disclosure={"crash": False, "usage": "light", "notes": "These are my riding pants."},
+    )
+
+
+def test_regular_pants_label_does_not_change_buy_in() -> None:
+    clean = _score_clean(riding_gear="yes")
+    for label in ("no", "uncertain"):
+        result = _score_clean(riding_gear=label)
+        assert result["decision"] == "auto_approved"
+        assert result["hard_gate_triggered"] is False
+        assert result["buy_in_recommended"] is True
+        assert result["total_score"] == clean["total_score"]
+        assert result["hard_gate_flags"]["not_riding_gear"] is False
+        assert result["upcycle_plan"] is None
+
+
+def test_visible_protector_failure_hard_gates_without_a_ce_label() -> None:
+    vision = make_clean_vision_result(ce_label="none")
+    vision["protector_status"] = "failed"
+    vision["riding_gear"] = "yes"
+    result = compute_score(vision, make_photos(), "jacket", {"crash": False, "usage": "light"})
+    assert result["decision"] == "rejected_upcycle"
+    assert result["hard_gate_triggered"] is True
+    assert result["buy_in_recommended"] is False
+    assert result["total_score"] <= 49
+    assert result["hard_gate_flags"]["protector_failed"] is True
+    assert result["upcycle_plan"]
+    assert result["extracted_labels"]["ce_label"] == "none"
+
+
+def test_missing_armour_hard_gates_only_for_aaa_aa_and_a() -> None:
+    for ce_label in ("AAA", "AA", "A"):
+        vision = make_clean_vision_result(ce_label=ce_label)
+        vision["protector_status"] = "missing"
+        vision["riding_gear"] = "yes"
+        result = compute_score(vision, make_photos(), "jacket", {"crash": False})
+        assert result["hard_gate_triggered"] is True, ce_label
+        assert result["decision"] == "rejected_upcycle", ce_label
+        assert result["hard_gate_flags"]["protector_missing_required"] is True
+
+    class_b = make_clean_vision_result(ce_label="B")
+    class_b["protector_status"] = "missing"
+    class_b["riding_gear"] = "yes"
+    result_b = compute_score(class_b, make_photos(), "jacket", {"crash": False})
+    assert result_b["protector_status"] == "not_required"
+    assert result_b["hard_gate_triggered"] is False
+    assert result_b["decision"] == "auto_approved"
+    assert "without impact protectors" in result_b["class_disclosure"]
+
+    unlabeled = make_clean_vision_result(ce_label="none")
+    unlabeled["protector_status"] = "missing"
+    unlabeled["riding_gear"] = "yes"
+    result_na = compute_score(unlabeled, make_photos(), "jacket", {"crash": False})
+    clean_na = compute_score(make_clean_vision_result(ce_label="none"), make_photos(), "jacket", {"crash": False})
+    assert result_na["protector_status"] == "unknown"
+    assert result_na["hard_gate_triggered"] is False
+    assert result_na["decision"] == "auto_approved"
+    assert result_na["total_score"] == clean_na["total_score"]
+
+
+def test_unproven_protector_on_a_printed_armour_class_stays_in_review() -> None:
+    vision = make_clean_vision_result(ce_label="AA")
+    vision["protector_status"] = "unknown"
+    vision["riding_gear"] = "yes"
+    result = compute_score(vision, make_photos(), "jacket", {"crash": False})
+    assert result["hard_gate_triggered"] is False
+    assert result["decision"] == "human_review"
+    assert result["buy_in_recommended"] is False
+
+
+def test_cosmetic_stain_is_review_and_oil_soak_is_a_hard_gate() -> None:
+    cosmetic = _score_clean(stain_kind="cosmetic", riding_gear="yes")
+    assert cosmetic["decision"] == "human_review"
+    assert cosmetic["hard_gate_triggered"] is False
+    assert cosmetic["hard_gate_flags"]["contamination_evident"] is False
+    assert cosmetic["stain_kind"] == "cosmetic"
+    assert 50 <= cosmetic["total_score"] <= 84
+
+    soaked = _score_clean(stain_kind="contamination", riding_gear="yes")
+    assert soaked["decision"] == "rejected_upcycle"
+    assert soaked["hard_gate_triggered"] is True
+    assert soaked["hard_gate_flags"]["contamination_evident"] is True
+    assert soaked["buy_in_recommended"] is False
+    assert soaked["total_score"] <= 49
+    assert soaked["upcycle_plan"]
+
+
+def test_flagged_spot_without_a_defect_photo_is_a_retake() -> None:
+    vision = make_clean_vision_result()
+    vision["closeup_needed"] = "left shoulder pad"
+    vision["riding_gear"] = "yes"
+    vision["protector_status"] = "intact"
+    held = compute_score(vision, make_photos(), "jacket", {"crash": False})
+    assert held["decision"] == "rejected_retake"
+    assert held["hard_gate_triggered"] is False
+    assert held["buy_in_recommended"] is False
+    assert held["upcycle_plan"] is None
+    assert "defect" in held["retake_angles"]
+    assert "not a buy-in decline" in held["summary"]
+
+    photos = make_photos() + [{"angle": "defect", "filepath": "uploads/test/defect.jpg", "angle_ok": True}]
+    released = compute_score(vision, photos, "jacket", {"crash": False})
+    assert released["decision"] == "auto_approved"
+    assert released["buy_in_recommended"] is True
+
+
+def test_printed_class_letters_are_disclosure_only() -> None:
+    baseline = compute_score(
+        make_clean_vision_result(ce_label="AA"),
+        make_photos(),
+        "jacket",
+        {"crash": False},
+    )
+    for ce_label, snippet in (
+        ("AAA", "shoulders, elbows, hips, and knees"),
+        ("AA", "touring and everyday"),
+        ("A", "hips are optional"),
+        ("B", "sold without impact protectors"),
+        ("C", "armour holder only"),
+    ):
+        result = compute_score(
+            make_clean_vision_result(ce_label=ce_label),
+            make_photos(),
+            "jacket",
+            {"crash": False},
+        )
+        assert result["extracted_labels"]["ce_label"] == ce_label
+        assert result["total_score"] == baseline["total_score"]
+        assert result["decision"] == "auto_approved"
+        disclosure = result["class_disclosure"]
+        assert snippet in disclosure
+        assert "not a test this intake performed" in disclosure
+        assert "km/h" not in disclosure.lower()
+        assert not FORBIDDEN_SAFETY_CLAIMS_RE.search(disclosure)
+
+
+def test_vision_normalizer_keeps_b_and_c_and_splits_stain_from_contamination() -> None:
+    from app.vision_scorer import _normalize_vision_response
+
+    cosmetic = _normalize_vision_response(
+        {
+            "extracted_labels": {"ce_label": "b", "material_group": "textile"},
+            "riding_gear": "yes",
+            "protector_status": "not_required",
+            "stain_kind": "cosmetic",
+            "closeup_needed": "left knee",
+            "hard_gate_flags": {"contamination_evident": True, "crash_evident": False, "zone1_breach_or_repair": False},
+        }
+    )
+    assert cosmetic["extracted_labels"]["ce_label"] == "B"
+    assert cosmetic["stain_kind"] == "cosmetic"
+    assert cosmetic["hard_gate_flags"]["contamination_evident"] is False
+    assert cosmetic["closeup_needed"] == "left knee"
+
+    soaked = _normalize_vision_response(
+        {
+            "extracted_labels": {"ce_label": "c"},
+            "riding_gear": "yes",
+            "protector_status": "intact",
+            "stain_kind": "contamination",
+        }
+    )
+    assert soaked["extracted_labels"]["ce_label"] == "C"
+    assert soaked["hard_gate_flags"]["contamination_evident"] is True
+
+    dropped = _normalize_vision_response({"extracted_labels": {"ce_label": "workwear"}})
+    assert dropped["extracted_labels"]["ce_label"] == "none"
+    assert dropped["riding_gear"] == "yes"
+    assert dropped["protector_status"] == "unknown"
+
+
+def test_intake_report_lists_riding_gear_protector_stain_and_closeup() -> None:
+    import io
+
+    import openpyxl
+
+    from app.exporter import build_checklist_workbook_bytes
+
+    score = _score_clean(riding_gear="no", protector_status="failed", stain_kind="contamination")
+    score["closeup_needed"] = "left shoulder pad"
+    score["decision"] = "rejected_retake"
+    workbook = openpyxl.load_workbook(
+        io.BytesIO(
+            build_checklist_workbook_bytes(
+                {"session_id": "export-1", "garment_type": "jacket", "status": "scored", "disclosure": {}},
+                [],
+                score,
+            )
+        )
+    )
+    report = workbook["Intake Report"]
+    rows = {
+        report.cell(row=index, column=1).value: report.cell(row=index, column=2).value
+        for index in range(1, 40)
+    }
+    assert "Riding gear (from photos)" not in rows
+    assert rows["Protector (from photos)"] == "Broken, cracked, or out of its pocket"
+    assert rows["Stain (from photos)"] == "Heavy oil, fuel, or chemical soak"
+    assert rows["Close-up still needed"] == "left shoulder pad"
+    assert "Printed class (disclosure only)" in rows

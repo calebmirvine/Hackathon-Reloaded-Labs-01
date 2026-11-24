@@ -16,9 +16,9 @@ import inspect
 import io
 import os
 import re
-import secrets
 import shutil
 import time
+from datetime import datetime
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
@@ -225,13 +225,18 @@ class AdminSettingsUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 # Helper Functions
 # ---------------------------------------------------------------------------
-def _generate_session_id() -> str:
-    """Generate a unique 8-character lowercase hexadecimal session ID."""
-    for _ in range(10):
-        candidate = secrets.token_hex(4)
-        if db.get_session(candidate) is None:
-            return candidate
-    return secrets.token_hex(4)
+def _generate_session_id(garment_type: str = "jacket") -> str:
+    """Readable session id: RL-pants-YYYY-MM-DD, with -2, -3 when that day is taken."""
+    kind = "pants" if str(garment_type).strip().lower() == "pants" else "jacket"
+    base = f"RL-{kind}-{datetime.now().strftime('%Y-%m-%d')}"
+    if db.get_session(base) is None:
+        return base
+    suffix = 2
+    while db.get_session(f"{base}-{suffix}") is not None:
+        suffix += 1
+        if suffix > 99:
+            break
+    return f"{base}-{suffix}"
 
 
 def _resolve_public_base_url(
@@ -506,7 +511,7 @@ def create_intake_session(
 ) -> dict[str, Any]:
     _ensure_db()
     settings = db.get_settings()
-    session_id = _generate_session_id()
+    session_id = _generate_session_id(payload.garment_type)
     session = db.create_session(session_id, garment_type=payload.garment_type)
 
     base_url = _resolve_public_base_url(request, settings=settings)
@@ -892,7 +897,7 @@ def load_demo_sample(payload: LoadSampleRequest) -> dict[str, Any]:
             detail=f"No matching angle images found in sample folder '{item_id}'.",
         )
 
-    session_id = _generate_session_id()
+    session_id = _generate_session_id(payload.garment_type)
     db.create_session(session_id, garment_type=payload.garment_type)
 
     session_upload_dir = UPLOADS_DIR / session_id
@@ -969,26 +974,32 @@ def get_admin_settings() -> dict[str, Any]:
     }
 
 
+def _require_admin_write_unlocked(request: Request) -> None:
+    """Enforce live access passcode on admin write routes when public writes are locked."""
+    if not guardrails.is_admin_write_protected():
+        return
+    client_ip = guardrails.extract_client_ip(request)
+    probe_ok, probe_retry = guardrails.rate_limiter.check_failed_passcode_allowed(client_ip)
+    if not probe_ok:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many invalid passcode attempts. Please try again later.",
+            headers={"Retry-After": str(probe_retry)},
+        )
+    raw_passcode = (request.headers.get("x-live-passcode") or "").strip()
+    if not guardrails.verify_passcode(raw_passcode):
+        guardrails.rate_limiter.record_failed_passcode(client_ip)
+        raise HTTPException(
+            status_code=403,
+            detail="Admin settings are locked in public portfolio mode. Unlock with the Live Access Passcode first.",
+        )
+
+
 @app.post("/admin/settings")
 def save_admin_settings(payload: AdminSettingsUpdate, request: Request) -> dict[str, Any]:
     """Validate and persist runtime intake settings in SQLite."""
     _ensure_db()
-    if guardrails.is_admin_write_protected():
-        client_ip = guardrails.extract_client_ip(request)
-        probe_ok, probe_retry = guardrails.rate_limiter.check_failed_passcode_allowed(client_ip)
-        if not probe_ok:
-            raise HTTPException(
-                status_code=429,
-                detail="Too many invalid passcode attempts. Please try again later.",
-                headers={"Retry-After": str(probe_retry)},
-            )
-        raw_passcode = (request.headers.get("x-live-passcode") or "").strip()
-        if not guardrails.verify_passcode(raw_passcode):
-            guardrails.rate_limiter.record_failed_passcode(client_ip)
-            raise HTTPException(
-                status_code=403,
-                detail="Admin settings are locked in public portfolio mode. Unlock with the Live Access Passcode first.",
-            )
+    _require_admin_write_unlocked(request)
 
     patch = payload.model_dump(exclude_none=True)
     if "public_base_url" in patch:
@@ -1009,6 +1020,67 @@ def save_admin_settings(payload: AdminSettingsUpdate, request: Request) -> dict[
         "settings": updated,
         "available_deployments": list(db.ALLOWED_DEPLOYMENTS),
         "hard_gate_locked": True,
+    }
+
+
+_SESSION_DIR_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def _path_inside_uploads(path: Path) -> Path | None:
+    """Return a resolved path only when it lives strictly inside the uploads directory."""
+    try:
+        root = UPLOADS_DIR.resolve()
+        resolved = path.resolve()
+    except OSError:
+        return None
+    if resolved == root or root not in resolved.parents:
+        return None
+    return resolved
+
+
+def _remove_ledger_uploads(session_ids: list[str], filepaths: list[str]) -> int:
+    """Delete recorded upload files and their session folders. Ignore paths outside uploads."""
+    removed = 0
+    for raw in filepaths:
+        if not raw:
+            continue
+        target = _path_inside_uploads(Path(raw))
+        if target is not None and target.is_file():
+            target.unlink()
+            removed += 1
+    seen: set[str] = set()
+    for sid in session_ids:
+        if not isinstance(sid, str) or _SESSION_DIR_RE.fullmatch(sid) is None or sid in seen:
+            continue
+        seen.add(sid)
+        folder = _path_inside_uploads(UPLOADS_DIR / sid)
+        if folder is not None and folder.is_dir():
+            shutil.rmtree(folder)
+            removed += 1
+    return removed
+
+
+@app.post("/admin/ledger/clear")
+def clear_intake_ledger(request: Request) -> dict[str, Any]:
+    """Wipe intake sessions, photos, scores, review rows, and their upload files.
+
+    Runtime settings in app_settings are kept.
+    """
+    _ensure_db()
+    _require_admin_write_unlocked(request)
+    cleared = db.clear_ledger()
+    upload_entries = _remove_ledger_uploads(
+        list(cleared.get("session_ids") or []),
+        list(cleared.get("filepaths") or []),
+    )
+    return {
+        "cleared": True,
+        "sessions": cleared["sessions"],
+        "photos": cleared["photos"],
+        "scores": cleared["scores"],
+        "reviews": cleared["reviews"],
+        "upload_entries": upload_entries,
+        "settings_kept": True,
     }
 
 

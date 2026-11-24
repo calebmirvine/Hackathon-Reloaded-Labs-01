@@ -733,6 +733,39 @@ def update_settings(patch: dict[str, Any]) -> dict[str, Any]:
     return get_settings()
 
 
+def clear_ledger() -> dict[str, Any]:
+    """Delete intake sessions, photos, scores, and review rows.
+
+    Leaves app_settings and the table schema in place.
+    """
+    with _connect() as conn:
+        session_ids = [
+            str(row["session_id"])
+            for row in conn.execute("SELECT session_id FROM sessions").fetchall()
+        ]
+        filepaths = [
+            str(row["filepath"])
+            for row in conn.execute("SELECT filepath FROM photos").fetchall()
+        ]
+        photo_count = int(conn.execute("SELECT COUNT(*) AS n FROM photos").fetchone()["n"])
+        score_count = int(conn.execute("SELECT COUNT(*) AS n FROM scores").fetchone()["n"])
+        review_count = int(
+            conn.execute("SELECT COUNT(*) AS n FROM review_queue").fetchone()["n"]
+        )
+        conn.execute("DELETE FROM photos")
+        conn.execute("DELETE FROM scores")
+        conn.execute("DELETE FROM review_queue")
+        conn.execute("DELETE FROM sessions")
+    return {
+        "sessions": len(session_ids),
+        "photos": photo_count,
+        "scores": score_count,
+        "reviews": review_count,
+        "session_ids": session_ids,
+        "filepaths": filepaths,
+    }
+
+
 def get_latest_agent_trace() -> dict[str, Any] | None:
     """Return the most recent persisted score entry containing a non-null agent_trace."""
     with _connect() as conn:

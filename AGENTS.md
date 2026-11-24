@@ -49,6 +49,7 @@ Every prompt, API response, database field, UI screen, and exported summary **MU
       # - Challenge photos are never saved as training data.
       #   Source: Participant Agreement v2.0 ("Don't train or fine-tune a model on the photo set")
       ```
+12. **No accessibility work:** Do not do accessibility audits, ARIA, screen-reader passes, contrast work, or accessibility refactors. Do not stop feature work to add them. Build the intake flow.
 
 ---
 
@@ -63,12 +64,13 @@ Every prompt, API response, database field, UI screen, and exported summary **MU
 1. **Laptop Starts Session & Shows QR Code:** The desktop/counter screen creates an intake session and displays a **QR code containing the session ID** (pointing to the app's **HTTPS** tunnel URL via **ngrok** or **Cloudflare Tunnel** so phone browsers allow camera access).
 2. **Phone Captures Guided Angles:** The phone opens the session URL, selects **Jacket** or **Pants** (plus optional rider disclosure notes), and captures the guided angles:
    - **`front`** — full exterior front, laid flat, zipped
-   - **`left`** — left outer side / sleeve or outer thigh
-   - **`right`** — right outer side / sleeve or outer thigh
-   - **`back`** — full exterior back (upper back / seat)
+   - **`back`** — full exterior back (upper back / seat). On pants this is shot second.
+   - **`left`** — jacket: left outer side. Pants: left fold, a plain rectangle in the frame.
+   - **`right`** — jacket: right outer side. Pants: right fold, a plain rectangle in the frame.
    - **`inside`** — garment inside-out showing lining, protective layer placement, and pockets
    - **`labels`** — sharp close-up(s) of brand, CE (if present), and material composition tags
-   - *(Optional additional defect shots if visible damage is spotted, with coin for scale)*
+   - Pants capture order is front, back, left fold, right fold, inside, labels.
+   - *(Optional damage close-up if visible damage is spotted. No scale object.)*
 3. **Live 2-Second Polling:** The laptop **polls `GET /status/<id>` every 2 seconds** to display incoming angles in real time and automatically continues to final scoring once the phone finishes capture.
 
 ---

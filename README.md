@@ -11,6 +11,37 @@ Store intake and buy-in **Gear Intake Checker** for Moto Reloaded (motorcycle ja
 
 > **Credit-Protected Portfolio Mode:** In Azure, `SCORE_MODE=demo_with_passcode` lets any visitor run real Stage-1 frozen OpenCLIP verification, mobile QR capture, deterministic 0–100 scoring, Hard Compliance Gate enforcement, and `.xlsx` export at **$0 Azure OpenAI spend**. Entering the private `LIVE_SCORE_PASSCODE` unlocks live Azure OpenAI **`gpt-4.1-mini`** vision scoring (guarded by per-IP hourly + global daily rate caps) and Admin Settings writes (`ALLOW_PUBLIC_ADMIN_WRITE=false`). Local development (`SCORE_MODE` unset) remains unchanged.
 
+## Architecture
+
+The laptop counter shows a QR code. The phone shoots six angles over HTTPS. FastAPI stores the session, OpenCLIP checks each angle locally, Azure gpt-4.1 returns a checklist, and Python turns that checklist into the 0–100 score.
+
+```mermaid
+flowchart LR
+  Counter["Laptop counter"] -->|QR over HTTPS| Phone["Phone camera"]
+  Phone -->|six angles| API["FastAPI"]
+  API --> Clip["OpenCLIP angle match"]
+  Clip --> Vision["gpt-4.1 checklist"]
+  Vision --> Score["Python 0-100 score"]
+  API --> DB[("SQLite")]
+```
+
+| Score | Route |
+|---|---|
+| 85–100 | Logged. Staff still confirm the garment in hand. |
+| 50–84 | In-hand review. |
+| 0–49 | Declined for buy-in, or a retake when a required photo is still missing. |
+
+## Tech stack
+
+- **Python 3.11** and **uv**
+- **FastAPI** and **Uvicorn**, with a plain **HTML / CSS / JS** counter and phone
+- **SQLite** for sessions, photos, scores, and the review queue
+- **OpenCLIP** ViT-B-32, frozen and local, with a **numpy** cosine lookup against `refs.npy`
+- **Azure OpenAI gpt-4.1** inside one `score_photos()` call
+- **Pillow**, **qrcode**, and **openpyxl** for images, the session QR, and the checklist workbook
+- **cloudflared** or **ngrok** so the phone camera can open the session over HTTPS
+- **pytest** for the offline suite
+
 ## Quick Start
 
 ```bash
@@ -45,4 +76,4 @@ Every module or function in this repository that touches models, embeddings, ref
 - **Zero-training scoring API:** Photos sent to the scoring API go exclusively to **Azure OpenAI**, whose API does not use customer inputs or uploads to train foundation models — [Azure OpenAI Data, Privacy, and Security](https://learn.microsoft.com/en-us/azure/foundry/responsible-ai/openai/data-privacy).
 - **No training data capture:** Challenge photos are never saved or exported as training data — **Participant Agreement v2.0** (*"Don't train or fine-tune a model on the photo set"*).
 
-See [`TOOLS.md`](TOOLS.md) for the complete tools/models disclosure and [`AGENTS.md`](AGENTS.md) for project rules and architecture.
+See [`TOOLS.md`](TOOLS.md) for the tools and models disclosure, [`ARCHITECTURE.md`](ARCHITECTURE.md) for the presentation architecture, and [`AGENTS.md`](AGENTS.md) for project rules.

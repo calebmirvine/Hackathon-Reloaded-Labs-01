@@ -11,12 +11,12 @@ const ANGLE_META = {
   left: {
     title: "Left Side",
     jacket: "Outer left shoulder, sleeve & elbow (Zone 1)",
-    pants: "Outer left hip, thigh & knee (Zone 1)",
+    pants: "Left fold · hip, thigh & knee",
   },
   right: {
     title: "Right Side",
     jacket: "Outer right shoulder, sleeve & elbow (Zone 1)",
-    pants: "Outer right hip, thigh & knee (Zone 1)",
+    pants: "Right fold · hip, thigh & knee",
   },
   back: {
     title: "Back Exterior",
@@ -33,7 +33,23 @@ const ANGLE_META = {
     jacket: "Sharp brand, composition & CE (if present)",
     pants: "Sharp brand, composition & CE (if present)",
   },
+  defect: {
+    title: "Damage close-up",
+    jacket: "Extra photo of a flagged spot",
+    pants: "Extra photo of a flagged spot",
+  },
 };
+
+function displayAngleTitle(angle, garment) {
+  if (garment === "pants" && angle === "left") return "Left fold";
+  if (garment === "pants" && angle === "right") return "Right fold";
+  return ANGLE_META[angle]?.title || angle;
+}
+
+function angleOrder(garment) {
+  if (garment === "pants") return ["front", "back", "left", "right", "inside", "labels"];
+  return REQUIRED_ANGLES;
+}
 
 const DEFAULT_RUNTIME_SETTINGS = {
   vision_deployment: "gpt-4.1",
@@ -57,6 +73,7 @@ const state = {
   pollTimer: null,
   isScoring: false,
   autoScoredSessions: new Set(),
+  scoredPhotoSig: "",
   lastStatus: null,
   disclosureDirty: false,
   counterCrash: false,
@@ -190,6 +207,8 @@ const els = {
   upcycleTradein: document.getElementById("upcycle-tradein"),
   upcycleClerkStep: document.getElementById("upcycle-clerk-step"),
   labelsGrid: document.getElementById("labels-grid"),
+  classDisclosure: document.getElementById("class-disclosure"),
+  intakeFindings: document.getElementById("intake-findings"),
   checklistSummaryPill: document.getElementById("checklist-summary-pill"),
   checklistTbody: document.getElementById("checklist-tbody"),
   auditTraceCard: document.getElementById("audit-trace-card"),
@@ -220,15 +239,11 @@ const els = {
   adminDiagGrid: document.getElementById("admin-diag-grid"),
   adminSettingsForm: document.getElementById("admin-settings-form"),
   setDeployment: document.getElementById("set-deployment"),
-  setPollInterval: document.getElementById("set-poll-interval"),
-  setTemperature: document.getElementById("set-temperature"),
-  setMaxTokens: document.getElementById("set-max-tokens"),
-  setClipThreshold: document.getElementById("set-clip-threshold"),
   setPublicUrl: document.getElementById("set-public-url"),
-  setAutoApproveMin: document.getElementById("set-auto-approve-min"),
-  setHumanReviewMin: document.getElementById("set-human-review-min"),
   setAutoScore: document.getElementById("set-auto-score"),
   btnSaveSettings: document.getElementById("btn-save-settings"),
+  btnClearLedger: document.getElementById("btn-clear-ledger"),
+  clearLedgerDialog: document.getElementById("clear-ledger-dialog"),
   sandboxSampleSelect: document.getElementById("sandbox-sample-select"),
   sandboxGarmentSelect: document.getElementById("sandbox-garment-select"),
   sandboxPresetSelect: document.getElementById("sandbox-preset-select"),
@@ -491,47 +506,62 @@ async function apiJson(url, options = {}) {
   return body;
 }
 
+function intakeFindingLines(score) {
+  const lines = [];
+  if (score.protector_status === "failed") {
+    lines.push("A protector looks broken, cracked, or out of its pocket.");
+  } else if (score.protector_status === "missing") {
+    lines.push("A protector this printed class includes was not in the photos.");
+  }
+  if (score.stain_kind === "cosmetic") {
+    lines.push("A light stain is noted for in-hand review. It is not treated as contamination.");
+  } else if (score.stain_kind === "contamination") {
+    lines.push("A heavy oil, fuel, or chemical soak is on the damage disclosure record.");
+  }
+  return lines;
+}
+
 function decisionMeta(decision, scoreValue = null) {
   switch (decision) {
     case "auto_approved":
       return {
         tone: "approve",
         badgeClass: "pill-approve",
-        bandText: "Auto-Approved",
-        title: "Auto-Approved & Logged",
-        buyInText: "Buy-In Eligible · Confirm In-Hand",
+        bandText: "Logged",
+        title: "Logged for buy-in",
+        buyInText: "Staff confirm in hand",
         buyInClass: "pill-approve",
-        goalText: "Log it for buy-in. Staff still confirm the garment in hand before any offer.",
+        goalText: "Log it. Staff still check the garment in hand.",
       };
     case "human_review":
       return {
         tone: "review",
         badgeClass: "pill-review",
-        bandText: "Pending Staff Review",
-        title: "Pending Staff Review",
-        buyInText: "Held for In-Hand Inspection",
+        bandText: "Review",
+        title: "Needs review",
+        buyInText: "In-hand check",
         buyInClass: "pill-review",
-        goalText: "Borderline wear stays with staff. In-hand inspection chooses circulation or retirement.",
+        goalText: "Borderline. Staff decide in hand.",
       };
     case "rejected_retake":
       return {
         tone: "reject",
         badgeClass: "pill-reject",
-        bandText: "Retake Required",
-        title: "Retake Required (0–49)",
-        buyInText: "Not Ready · Retake Flagged Angles",
+        bandText: "Retake",
+        title: "Retake",
+        buyInText: "Photos incomplete",
         buyInClass: "pill-reject",
-        goalText: "Photo coverage is incomplete. Retake the flagged angles before any intake decision.",
+        goalText: "Photo coverage is incomplete. Retake the flagged angles.",
       };
     case "rejected_upcycle":
       return {
         tone: "reject",
         badgeClass: "pill-reject",
-        bandText: "Declined — Upcycle Pathway",
-        title: "Declined for Buy-In — Upcycle Pathway",
-        buyInText: "Declined · Route to Upcycling",
+        bandText: "Upcycle",
+        title: "Declined",
+        buyInText: "Upcycle or trade-in",
         buyInClass: "pill-reject",
-        goalText: "Declined for buy-in. Keep the materials in circulation and open the new-gear trade-in conversation.",
+        goalText: "Declined for buy-in. Upcycle the materials, or talk trade-in.",
       };
     default: {
       const n = Number(scoreValue);
@@ -544,7 +574,7 @@ function decisionMeta(decision, scoreValue = null) {
         title: "Pending Evaluation",
         buyInText: "Not Scored Yet",
         buyInClass: "pill-neutral",
-        goalText: "Finish photo coverage and damage disclosure before choosing buy-in, review, or upcycling.",
+        goalText: "Finish photo coverage and damage disclosure.",
       };
     }
   }
@@ -591,7 +621,7 @@ function initAngleDeck() {
         <path d="M4 7h3l2-2h6l2 2h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" />
         <circle cx="12" cy="13" r="3.5" />
       </svg>
-      <span>Awaiting ${escapeHtml(angle)}</span>
+      <span>Awaiting ${escapeHtml(displayAngleTitle(angle, state.garmentType))}</span>
     `;
 
     const thumbBtn = document.createElement("button");
@@ -624,7 +654,7 @@ function initAngleDeck() {
 
     const nameSpan = document.createElement("span");
     nameSpan.className = "angle-name";
-    nameSpan.textContent = meta.title;
+    nameSpan.textContent = displayAngleTitle(angle, state.garmentType);
 
     const badgeSpan = document.createElement("span");
     badgeSpan.className = "pill pill-neutral";
@@ -647,6 +677,8 @@ function initAngleDeck() {
     state.angleCardNodes.set(angle, {
       card,
       placeholder,
+      placeholderLabel: placeholder.querySelector("span"),
+      nameSpan,
       thumbBtn,
       img,
       badgeSpan,
@@ -676,11 +708,17 @@ function syncAngleDeck(photos, garment) {
 
   els.angleCountPill.textContent = `${requiredMap.size} / ${REQUIRED_ANGLES.length} captured`;
 
+  angleOrder(garment).forEach((angle) => {
+    const nodes = state.angleCardNodes.get(angle);
+    if (nodes) els.angleGrid.appendChild(nodes.card);
+  });
+
   REQUIRED_ANGLES.forEach((angle) => {
     const nodes = state.angleCardNodes.get(angle);
     if (!nodes) return;
 
     const meta = ANGLE_META[angle];
+    const title = displayAngleTitle(angle, garment);
     const hint = garment === "pants" ? meta.pants : meta.jacket;
     const photo = requiredMap.get(angle) || null;
 
@@ -693,6 +731,9 @@ function syncAngleDeck(photos, garment) {
       return;
     }
     state.angleSignatures.set(angle, sig);
+
+    nodes.nameSpan.textContent = title;
+    if (nodes.placeholderLabel) nodes.placeholderLabel.textContent = `Awaiting ${title}`;
 
     if (!photo) {
       nodes.card.className = "angle-card";
@@ -734,7 +775,7 @@ function syncAngleDeck(photos, garment) {
       nodes.img.src = cacheBusted;
     }
     nodes.thumbBtn.dataset.lightboxUrl = cacheBusted;
-    nodes.thumbBtn.dataset.lightboxTitle = `${meta.title} (${angle})`;
+    nodes.thumbBtn.dataset.lightboxTitle = `${title} (${angle})`;
     nodes.thumbBtn.dataset.lightboxSub = angleOk
       ? `Verified by OpenCLIP · ${subtitleText}`
       : subtitleText;
@@ -768,7 +809,7 @@ function syncAngleDeck(photos, garment) {
         img.loading = "lazy";
         btn.appendChild(img);
         btn.addEventListener("click", () => {
-          openLightbox(url, `Defect Close-Up #${idx + 1}`, "Coin-scale close-up photo");
+          openLightbox(url, `Damage close-up #${idx + 1}`, "Extra photo of a flagged spot");
         });
         const cap = document.createElement("div");
         cap.className = "defect-thumb-caption";
@@ -834,6 +875,7 @@ function resetToCategoryCard() {
   state.captureUrl = "";
   state.qrDataUrl = "";
   state.lastStatus = null;
+  state.scoredPhotoSig = "";
   state.isScoring = false;
   state.disclosureDirty = false;
   state.counterCrash = false;
@@ -855,13 +897,22 @@ function stopPolling() {
   els.pollingIndicator.classList.add("hidden");
 }
 
+function photoSignature(photos) {
+  return (Array.isArray(photos) ? photos : [])
+    .map((photo) => `${photo.id}|${photo.angle}|${photo.filepath}`)
+    .join(",");
+}
+
 function shouldPollNow() {
   if (state.activeTab !== "intake") return false;
-  if (state.wizardStep !== 2) return false;
   if (!state.sessionId) return false;
   if (state.isScoring) return false;
-  if (state.lastStatus?.status === "scored") return false;
   if (Number(state.settings.poll_interval_ms) <= 0) return false;
+  const waitingOnRetake =
+    state.wizardStep === 3 && state.lastStatus?.score?.decision === "rejected_retake";
+  if (waitingOnRetake) return true;
+  if (state.wizardStep !== 2) return false;
+  if (state.lastStatus?.status === "scored") return false;
   return true;
 }
 
@@ -910,7 +961,7 @@ async function startNewCategorySession(garmentType) {
       captureUrl: res.capture_url,
       qrDataUrl: res.qr_data_url,
     });
-    showToast(`Session ${res.session_id} created. Scan the QR code on a phone to capture photos.`, "success");
+    showToast(`Session ${res.session_id}. Scan the code on a phone.`, "success");
     await pollSessionStatus();
     loadSessionsLog({ silent: true });
   } catch (err) {
@@ -931,6 +982,7 @@ function openSessionInStep(
   state.captureUrl = captureUrl || `${window.location.origin}/capture/${sessionId}`;
   state.qrDataUrl = qrDataUrl || "";
   state.lastStatus = null;
+  state.scoredPhotoSig = "";
   state.disclosureDirty = false;
   state.counterCrash = false;
   resetCaptureDeckSignatures();
@@ -1020,10 +1072,10 @@ function updateDisclosureSummaryPill() {
   const usageLabel = capitalize(els.counterUsageSelect.value || "moderate");
   if (state.counterCrash) {
     els.disclosureSummaryPill.className = "pill pill-reject";
-    els.disclosureSummaryPill.textContent = `Crash Disclosed · ${usageLabel}`;
+    els.disclosureSummaryPill.textContent = `Crash · ${usageLabel}`;
   } else {
     els.disclosureSummaryPill.className = "pill pill-neutral";
-    els.disclosureSummaryPill.textContent = `No Crash · ${usageLabel}`;
+    els.disclosureSummaryPill.textContent = `No crash · ${usageLabel}`;
   }
 }
 
@@ -1066,29 +1118,34 @@ async function pollSessionStatus({ skipAutoScore = false } = {}) {
     state.lastStatus = data;
     state.garmentType = data.garment_type || state.garmentType;
     renderCaptureState(data);
+    const photoSig = photoSignature(data.photos);
 
-    // Stop polling immediately once scored
-    if (data.status === "scored") {
-      stopPolling();
-      if (data.score) {
-        renderAuditDossier(data.score);
+    if (data.status === "scored" && data.score) {
+      renderAuditDossier(data.score);
+      if (!state.scoredPhotoSig) state.scoredPhotoSig = photoSig;
+      if (data.score.decision !== "rejected_retake") {
+        stopPolling();
+        setWizardStep(state.wizardStep);
+        return;
       }
-      setWizardStep(state.wizardStep);
-      return;
+      syncPollingLifecycle();
     }
 
-    // Auto-score & advance to Card 3 when phone completes capture (if enabled in Admin settings)
+    // Score when the phone finishes, and again after a retake adds photos.
     const isReady = data.status === "ready_to_score" || Boolean(data.ready_to_score);
+    const unseenPhotos = Boolean(photoSig) && photoSig !== state.scoredPhotoSig;
+    const firstFinish = !data.score && !state.autoScoredSessions.has(activeId) && unseenPhotos;
+    const retakeFollowUp = data.score?.decision === "rejected_retake" && unseenPhotos;
     if (
       !skipAutoScore &&
       state.settings.auto_score_on_complete &&
       isReady &&
-      !data.score &&
       !state.isScoring &&
-      !state.autoScoredSessions.has(activeId) &&
       Array.isArray(data.photos) &&
-      data.photos.length > 0
+      data.photos.length > 0 &&
+      (firstFinish || retakeFollowUp)
     ) {
+      state.scoredPhotoSig = photoSig;
       state.autoScoredSessions.add(activeId);
       setWizardStep(3);
       await triggerScore(activeId, { useCounterDisclosure: false });
@@ -1116,17 +1173,17 @@ function renderCaptureState(data) {
 
   els.btnContinueAudit.disabled = photos.length === 0 || state.isScoring;
   if (data.score) {
-    els.btnContinueAudit.textContent = "Open Audit Dossier →";
-    els.captureReadyHint.textContent = "Scored — open Card 3 to review results or re-score.";
+    els.btnContinueAudit.textContent = "Open score";
+    els.captureReadyHint.textContent = "Scored.";
   } else if (data.status === "ready_to_score") {
-    els.btnContinueAudit.textContent = "Run Audit & Score →";
-    els.captureReadyHint.textContent = "Mobile capture finished — ready to run verification audit.";
+    els.btnContinueAudit.textContent = "Score";
+    els.captureReadyHint.textContent = "Phone is done. Ready to score.";
   } else if (photos.length > 0) {
-    els.btnContinueAudit.textContent = "Continue to Audit →";
-    els.captureReadyHint.textContent = `${photos.length} photo${photos.length === 1 ? "" : "s"} received — finish on phone or continue now.`;
+    els.btnContinueAudit.textContent = "Score";
+    els.captureReadyHint.textContent = `${photos.length} photo${photos.length === 1 ? "" : "s"} in.`;
   } else {
-    els.btnContinueAudit.textContent = "Continue to Audit →";
-    els.captureReadyHint.textContent = "Waiting for mobile uploads…";
+    els.btnContinueAudit.textContent = "Score";
+    els.captureReadyHint.textContent = "Waiting for the phone.";
   }
 
   if (data.score && !state.isScoring) {
@@ -1162,6 +1219,7 @@ async function triggerScore(sessionId, { useCounterDisclosure = true } = {}) {
 
     state.disclosureDirty = false;
     state.isScoring = false;
+    state.scoredPhotoSig = photoSignature(state.lastStatus?.photos);
     state.lastScoreSig = ""; // force render new result
     if (state.lastStatus) {
       state.lastStatus.status = "scored";
@@ -1226,7 +1284,17 @@ function renderAuditDossier(score) {
   els.buyinStatusPill.textContent = meta.buyInText;
   els.decisionTitle.textContent = score.decision_label || meta.title;
   els.decisionSummary.textContent = score.summary || "";
-  els.decisionGoal.textContent = meta.goalText || "";
+  const closeupSpot = String(score.closeup_needed || "").trim();
+  const missingAngles = Array.isArray(score.missing_angles) ? score.missing_angles : [];
+  const mismatchedAngles = Array.isArray(score.mismatched_angles) ? score.mismatched_angles : [];
+  const closeupOnly =
+    score.decision === "rejected_retake" &&
+    Boolean(closeupSpot) &&
+    missingAngles.length === 0 &&
+    mismatchedAngles.length === 0;
+  els.decisionGoal.textContent = closeupOnly
+    ? "One close-up finishes the record. The score stays open until that spot is photographed."
+    : meta.goalText || "";
 
   // Radial Gauge
   const circumference = 2 * Math.PI * 50;
@@ -1291,11 +1359,19 @@ function renderAuditDossier(score) {
 
   // Retake Banner
   const retakeAngles = Array.isArray(score.retake_angles) ? score.retake_angles : [];
-  if (score.decision === "rejected_retake" && retakeAngles.length > 0) {
+  if (score.decision === "rejected_retake" && (retakeAngles.length > 0 || closeupSpot)) {
     els.retakeBox.classList.remove("hidden");
-    els.retakeAnglesText.textContent = `Retake clearer photos for: ${retakeAngles
-      .map((a) => ANGLE_META[a]?.title || capitalize(a))
-      .join(", ")}.`;
+    if (closeupOnly) {
+      els.retakeAnglesText.textContent = `One damage close-up of ${closeupSpot} is needed before this score is final.`;
+    } else {
+      const names = retakeAngles
+        .filter((angle) => angle !== "defect")
+        .map((angle) => displayAngleTitle(angle, state.garmentType));
+      const extra = closeupSpot && retakeAngles.includes("defect")
+        ? ` Also one damage close-up of ${closeupSpot}.`
+        : "";
+      els.retakeAnglesText.textContent = `Retake clearer photos for: ${names.join(", ") || "the flagged angles"}.${extra}`;
+    }
   } else {
     els.retakeBox.classList.add("hidden");
   }
@@ -1362,6 +1438,24 @@ function renderAuditDossier(score) {
       <span class="label-tile-val">${escapeHtml(labels.composition || "Not determinable")}</span>
     </div>
   `;
+
+  const classDisclosure = String(score.class_disclosure || labels.class_disclosure || "").trim();
+  if (classDisclosure) {
+    els.classDisclosure.hidden = false;
+    els.classDisclosure.textContent = classDisclosure;
+  } else {
+    els.classDisclosure.hidden = true;
+    els.classDisclosure.textContent = "";
+  }
+
+  const findingLines = intakeFindingLines(score);
+  if (findingLines.length > 0) {
+    els.intakeFindings.hidden = false;
+    els.intakeFindings.textContent = findingLines.join("\n");
+  } else {
+    els.intakeFindings.hidden = true;
+    els.intakeFindings.textContent = "";
+  }
 
   // Checklist Table
   const checklist = Array.isArray(score.checklist) ? score.checklist : [];
@@ -1458,12 +1552,12 @@ function buildTraceStatsHtml(trace) {
 function renderAuditAgentTrace(trace) {
   if (!trace || typeof trace !== "object") {
     state.auditTracePayload = null;
-    els.auditTraceHeading.textContent = "Frontier Trace Unavailable";
-    els.auditTraceProviderPill.textContent = "No Trace";
+    els.auditTraceHeading.textContent = "No score notes";
+    els.auditTraceProviderPill.textContent = "None";
     els.auditTraceStats.innerHTML = `
       <div class="trace-stat" style="grid-column: 1 / -1;">
         <span class="trace-stat-key">Info</span>
-        <span class="trace-stat-val">Re-score this session to capture full Frontier Agent prompt &amp; JSON trace.</span>
+        <span class="trace-stat-val">Score again to keep the prompt and response.</span>
       </div>
     `;
     els.auditTraceSystem.textContent = "No system prompt captured for this record.";
@@ -1589,7 +1683,7 @@ function renderReviewQueue() {
               id="notes-${escapeHtml(item.session_id)}"
               class="textarea"
               rows="2"
-              placeholder="Record physical stitching, zipper, odor, or lining findings…"
+              placeholder="Stitches, zipper, lining"
             >${escapeHtml(item.staff_notes || "")}</textarea>
           </div>
 
@@ -1600,7 +1694,7 @@ function renderReviewQueue() {
               data-review-action="approved"
               data-session-id="${escapeHtml(item.session_id)}"
             >
-              Approve In-Hand
+              Approve
             </button>
             <button
               type="button"
@@ -1608,7 +1702,7 @@ function renderReviewQueue() {
               data-review-action="declined_upcycle"
               data-session-id="${escapeHtml(item.session_id)}"
             >
-              Decline → Upcycle
+              Upcycle
             </button>
             <button
               type="button"
@@ -1616,7 +1710,7 @@ function renderReviewQueue() {
               data-open-audit="${escapeHtml(item.session_id)}"
               data-open-garment="${escapeHtml(item.garment_type || "jacket")}"
             >
-              Open Audit Card →
+              Open
             </button>
           </div>
         </article>
@@ -1717,7 +1811,7 @@ function renderSessionsLog() {
           <td style="white-space: nowrap;">${escapeHtml(formatDate(s.updated_at || s.created_at))}</td>
           <td>
             <div class="row-wrap" style="gap: 0.4rem;">
-              <button type="button" class="btn btn-primary btn-sm" data-ledger-audit="${escapeHtml(s.session_id)}">Audit</button>
+              <button type="button" class="btn btn-primary btn-sm" data-ledger-audit="${escapeHtml(s.session_id)}">Open</button>
               <a
                 href="/export/${encodeURIComponent(s.session_id)}.xlsx"
                 download
@@ -1792,30 +1886,13 @@ async function loadRuntimeSettings({ silent = true } = {}) {
 
 function applySettingsToUi() {
   const s = state.settings;
-  els.headerModelPill.textContent = `${s.vision_deployment || "gpt-4.1"} · Inference-Only`;
+  els.headerModelPill.textContent = s.vision_deployment || "gpt-4.1";
 
-  // Populate deployment select
   els.setDeployment.innerHTML = state.availableDeployments
     .map((dep) => `<option value="${escapeHtml(dep)}">${escapeHtml(dep)}</option>`)
     .join("");
   els.setDeployment.value = s.vision_deployment || "gpt-4.1";
-
-  // Poll interval select (add custom option if persisted value isn't in standard presets)
-  const pollVal = String(s.poll_interval_ms ?? 2000);
-  if (!Array.from(els.setPollInterval.options).some((opt) => opt.value === pollVal)) {
-    const opt = document.createElement("option");
-    opt.value = pollVal;
-    opt.textContent = `${pollVal} ms (Custom)`;
-    els.setPollInterval.appendChild(opt);
-  }
-  els.setPollInterval.value = pollVal;
-
-  els.setTemperature.value = String(s.temperature ?? 0.1);
-  els.setMaxTokens.value = String(s.max_tokens ?? 1800);
-  els.setClipThreshold.value = String(s.clip_warn_threshold ?? 0.22);
   els.setPublicUrl.value = s.public_base_url || "";
-  els.setAutoApproveMin.value = String(s.auto_approve_min ?? 85);
-  els.setHumanReviewMin.value = String(s.human_review_min ?? 50);
   els.setAutoScore.checked = Boolean(s.auto_score_on_complete);
 
   syncPollingLifecycle();
@@ -1829,13 +1906,7 @@ async function handleSaveSettings(evt) {
   try {
     const payload = {
       vision_deployment: els.setDeployment.value,
-      poll_interval_ms: Number(els.setPollInterval.value),
-      temperature: Number(els.setTemperature.value),
-      max_tokens: Number(els.setMaxTokens.value),
-      clip_warn_threshold: Number(els.setClipThreshold.value),
       public_base_url: els.setPublicUrl.value.trim(),
-      auto_approve_min: Number(els.setAutoApproveMin.value),
-      human_review_min: Number(els.setHumanReviewMin.value),
       auto_score_on_complete: Boolean(els.setAutoScore.checked),
     };
 
@@ -1849,13 +1920,50 @@ async function handleSaveSettings(evt) {
       state.settings = { ...DEFAULT_RUNTIME_SETTINGS, ...data.settings };
       applySettingsToUi();
     }
-    showToast("Runtime settings saved and applied immediately.", "success");
+    showToast("Saved.", "success");
     loadAdminDiagnostics({ silent: true });
   } catch (err) {
     showToast(`Settings rejected: ${err.message}`, "error", 6500);
   } finally {
     els.btnSaveSettings.disabled = false;
-    els.btnSaveSettings.textContent = "Save Settings";
+    els.btnSaveSettings.textContent = "Save";
+  }
+}
+
+function openClearLedgerDialog() {
+  const dialog = els.clearLedgerDialog;
+  if (!dialog || typeof dialog.showModal !== "function" || dialog.open) return;
+  dialog.returnValue = "";
+  dialog.showModal();
+}
+
+async function handleClearLedgerChoice() {
+  const dialog = els.clearLedgerDialog;
+  const choice = dialog.returnValue;
+  dialog.returnValue = "";
+  if (choice !== "clear") return;
+
+  els.btnClearLedger.disabled = true;
+  try {
+    const data = await apiJson("/admin/ledger/clear", {
+      method: "POST",
+      headers: buildAuthHeaders(),
+    });
+    resetToCategoryCard();
+    await Promise.all([
+      loadReviewQueue({ silent: true }),
+      loadSessionsLog({ silent: true }),
+      loadAdminDiagnostics({ silent: true }),
+    ]);
+    const removed = Number(data?.sessions ?? 0);
+    showToast(
+      removed === 1 ? "Ledger cleared. 1 session removed." : `Ledger cleared. ${removed} sessions removed.`,
+      "success"
+    );
+  } catch (err) {
+    showToast(`Could not clear the ledger: ${err.message}`, "error", 6500);
+  } finally {
+    els.btnClearLedger.disabled = false;
   }
 }
 
@@ -1876,58 +1984,41 @@ function renderAdminDiagnostics(diag) {
   const compliance = diag?.compliance || {};
 
   const azureBadge = azure.configured
-    ? `<span class="pill pill-approve">Configured</span>`
-    : `<span class="pill pill-reject">Missing Env</span>`;
+    ? `<span class="pill pill-approve">Ready</span>`
+    : `<span class="pill pill-reject">No key</span>`;
 
   const refsCount = clip.refs_count ?? 0;
   const clipBadge =
     refsCount > 0
-      ? `<span class="pill pill-approve">${escapeHtml(refsCount)} Vectors</span>`
-      : `<span class="pill pill-review">Zero-Shot Fallback</span>`;
+      ? `<span class="pill pill-approve">${escapeHtml(refsCount)} refs</span>`
+      : `<span class="pill pill-review">No refs</span>`;
 
   els.adminDiagGrid.innerHTML = `
     <div class="diag-card">
       <div class="row-between">
-        <span class="trace-stat-key">Azure OpenAI Vision</span>
+        <span class="trace-stat-key">Model</span>
         ${azureBadge}
       </div>
-      <strong class="mono" style="font-size: 0.85rem;">${escapeHtml(azure.endpoint_host || "Not configured")}</strong>
-      <div style="font-size: 0.8rem; color: var(--fg-muted);">
-        Deployment: <strong>${escapeHtml(azure.active_deployment || state.settings.vision_deployment)}</strong> · API ${escapeHtml(azure.api_version || "—")}
-      </div>
+      <strong>${escapeHtml(azure.active_deployment || state.settings.vision_deployment || "gpt-4.1")}</strong>
+      <div style="font-size: 0.8rem; color: var(--fg-muted);">${escapeHtml(azure.endpoint_host || "Not configured")}</div>
     </div>
 
     <div class="diag-card">
       <div class="row-between">
-        <span class="trace-stat-key">OpenCLIP Stage 1</span>
+        <span class="trace-stat-key">Angles</span>
         ${clipBadge}
       </div>
-      <strong style="font-size: 0.88rem;">${escapeHtml(clip.checkpoint || "ViT-B-32")} (${escapeHtml(clip.pretrained || "laion2b_s34b_b79k")})</strong>
-      <div style="font-size: 0.8rem; color: var(--fg-muted);">
-        Device: <strong>${escapeHtml(clip.device || "auto")}</strong> · Model ${clip.model_loaded ? "loaded" : "lazy-ready"}
-      </div>
+      <strong>${escapeHtml(clip.checkpoint || "ViT-B-32")}</strong>
+      <div style="font-size: 0.8rem; color: var(--fg-muted);">${clip.model_loaded ? "Loaded" : "Ready"}</div>
     </div>
 
     <div class="diag-card">
       <div class="row-between">
-        <span class="trace-stat-key">SQLite Ledger</span>
-        <span class="pill pill-black tabular">${escapeHtml(dbInfo.session_count ?? 0)} Sessions</span>
+        <span class="trace-stat-key">Ledger</span>
+        <span class="pill pill-black tabular">${escapeHtml(dbInfo.session_count ?? 0)}</span>
       </div>
-      <strong class="mono" style="font-size: 0.8rem; word-break: break-all;">${escapeHtml(dbInfo.db_path || "intake.db")}</strong>
-      <div style="font-size: 0.8rem; color: var(--fg-muted);">
-        Pending Staff Reviews: <strong>${escapeHtml(dbInfo.pending_review_count ?? 0)}</strong>
-      </div>
-    </div>
-
-    <div class="diag-card">
-      <div class="row-between">
-        <span class="trace-stat-key">Compliance Locks</span>
-        <span class="pill pill-reject">Hard Gate Locked</span>
-      </div>
-      <strong style="font-size: 0.88rem;">Inference-Only · Zero Training</strong>
-      <div style="font-size: 0.8rem; color: var(--fg-muted);">
-        ${compliance.hard_gate_locked !== false ? "Crash / contamination / Zone-1 capped <= 49." : "Check lock."}
-      </div>
+      <strong>${escapeHtml(dbInfo.pending_review_count ?? 0)} in review</strong>
+      <div style="font-size: 0.8rem; color: var(--fg-muted);">${compliance.hard_gate_locked === false ? "Check the decline rule." : "Crash, contamination, and Zone 1 stay declined."}</div>
     </div>
   `;
 
@@ -1995,7 +2086,7 @@ function getSandboxDisclosurePreset(presetKey) {
       crash: true,
       usage: "moderate",
       exposure_band: "moderate",
-      notes: "Sandbox preset: rider disclosed prior crash involvement (Hard Compliance Gate test).",
+      notes: "Rider disclosed a crash.",
     };
   }
   if (presetKey === "contradiction") {
@@ -2003,14 +2094,14 @@ function getSandboxDisclosurePreset(presetKey) {
       crash: false,
       usage: "light",
       exposure_band: "light",
-      notes: "Sandbox preset: rider claimed garment is almost new, lightly worn 1 season, stored indoors.",
+      notes: "Rider said light use.",
     };
   }
   return {
     crash: false,
     usage: "light",
     exposure_band: "light",
-    notes: "Sandbox preset: clean light-use intake.",
+    notes: "Clean, light use.",
   };
 }
 
@@ -2129,13 +2220,13 @@ function bindEvents() {
     const t = state.auditTracePayload;
     if (!t) return showToast("No prompt trace available.", "warn");
     const combined = `=== SYSTEM PROMPT ===\n${t.system_prompt || ""}\n\n=== USER PROMPT ===\n${t.user_prompt || ""}`;
-    copyText(combined, "Frontier prompts copied to clipboard.");
+    copyText(combined, "Prompt copied.");
   });
 
   els.btnAuditCopyJson.addEventListener("click", () => {
     const t = state.auditTracePayload;
     if (!t) return showToast("No raw JSON response available.", "warn");
-    copyText(prettyJsonText(t.raw_response), "Raw Frontier JSON copied to clipboard.");
+    copyText(prettyJsonText(t.raw_response), "Response copied.");
   });
 
   els.btnAuditApprove.addEventListener("click", async () => {
@@ -2182,6 +2273,8 @@ function bindEvents() {
   // Admin & Debug
   els.btnRefreshAdmin.addEventListener("click", () => loadAdminPanel());
   els.adminSettingsForm.addEventListener("submit", handleSaveSettings);
+  els.btnClearLedger.addEventListener("click", openClearLedgerDialog);
+  els.clearLedgerDialog.addEventListener("close", handleClearLedgerChoice);
 
   els.btnSandboxRun.addEventListener("click", () => {
     loadLocalSampleAndOpen({
@@ -2197,13 +2290,13 @@ function bindEvents() {
     const t = state.latestTracePayload;
     if (!t) return showToast("No prompt trace available.", "warn");
     const combined = `=== SYSTEM PROMPT ===\n${t.system_prompt || ""}\n\n=== USER PROMPT ===\n${t.user_prompt || ""}`;
-    copyText(combined, "Latest Frontier prompts copied to clipboard.");
+    copyText(combined, "Prompt copied.");
   });
 
   els.btnAdminCopyJson.addEventListener("click", () => {
     const t = state.latestTracePayload;
     if (!t) return showToast("No raw JSON response available.", "warn");
-    copyText(prettyJsonText(t.raw_response), "Latest raw Frontier JSON copied to clipboard.");
+    copyText(prettyJsonText(t.raw_response), "Response copied.");
   });
 
   // Portfolio Demo Mode passcode form

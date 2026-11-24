@@ -126,6 +126,43 @@ def _format_brand_description(labels: dict[str, Any], garment_type: str) -> str:
     return f"Moto {label} (details pending physical review)"
 
 
+_FINDING_LABELS = {
+    "protector_status": {
+        "intact": "Intact in the photos",
+        "failed": "Broken, cracked, or out of its pocket",
+        "missing": "Missing on a class that includes protectors",
+        "not_required": "Not part of this printed class",
+        "unknown": "Not confirmed in the photos",
+    },
+    "stain_kind": {
+        "none": "None noted",
+        "cosmetic": "Light stain — in-hand review, not contamination",
+        "contamination": "Heavy oil, fuel, or chemical soak",
+    },
+}
+
+
+def _photo_finding_rows(score: dict[str, Any] | None) -> list[tuple[str, str]]:
+    if not isinstance(score, dict):
+        return []
+    rows: list[tuple[str, str]] = []
+    class_text = str(score.get("class_disclosure") or "").strip()
+    if class_text:
+        rows.append(("Printed class (disclosure only)", class_text))
+    for key, title in (
+        ("protector_status", "Protector (from photos)"),
+        ("stain_kind", "Stain (from photos)"),
+    ):
+        raw = str(score.get(key) or "").strip().lower()
+        if raw in {"", "unspecified"}:
+            continue
+        rows.append((title, _FINDING_LABELS[key].get(raw, raw)))
+    closeup = str(score.get("closeup_needed") or "").strip()
+    if closeup and score.get("decision") == "rejected_retake":
+        rows.append(("Close-up still needed", closeup))
+    return rows
+
+
 def _format_ce_cell(has_labels: bool, labels: dict[str, Any]) -> str:
     if not has_labels:
         return "no"
@@ -433,6 +470,7 @@ def build_checklist_workbook_bytes(
             ),
         ),
     ]
+    summary_rows.extend(_photo_finding_rows(score if isinstance(score, dict) else None))
 
     if isinstance(score, dict) and score.get("upcycle_plan"):
         summary_rows.append(

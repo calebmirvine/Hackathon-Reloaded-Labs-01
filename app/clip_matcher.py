@@ -70,7 +70,7 @@ _ZERO_SHOT_PROMPTS: dict[str, list[str]] = {
     ],
     "defect": [
         "a close-up photo of fabric abrasion, scuff, tear, or zipper damage on motorcycle gear",
-        "a macro close-up photo showing surface wear or stitching defect on a garment next to a coin",
+        "a macro close-up photo showing surface wear or stitching defect on a garment",
     ],
 }
 

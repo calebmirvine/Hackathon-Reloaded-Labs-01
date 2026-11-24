@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Moto Reloaded · Guided Mobile Capture</title>
+  <title>Relooped · Guided Capture</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
@@ -18,8 +18,8 @@
     <!-- Top Compact Editorial Wordmark Bar -->
     <header class="phone-header">
       <div class="brand-lockup">
-        <div class="brand-title">Moto Reloaded</div>
-        <div class="brand-subtitle">Awareness · Circulation · Trade-in</div>
+        <div class="brand-title">Relooped</div>
+        <div class="brand-subtitle">Awareness · Upcycle · Trade-in</div>
       </div>
 
       <span id="phone-session-pill" class="pill pill-black mono">Session —</span>
@@ -33,7 +33,7 @@
       <span class="pill pill-reject">Session Not Found</span>
       <h1>Could not load this intake session</h1>
       <p id="phone-error-detail" style="font-size: 0.9rem;">
-        Please scan a fresh QR code from the Moto Reloaded counter screen.
+        Scan a fresh code from the counter.
       </p>
     </section>
 
@@ -63,18 +63,17 @@
              ================================================================= -->
         <section id="stage-category" class="capture-stage" aria-label="Choose Garment Category">
           <div>
-            <div class="section-kicker">Step 1 · Garment Category</div>
-            <h1 class="section-title">What gear are you photographing?</h1>
+            <div class="section-kicker">Jacket or pants</div>
+            <h1 class="section-title">Jacket or pants?</h1>
             <p class="section-subtitle">
-              Jackets and pants only. These photos document coverage and damage for the counter.
-              They do not test protection.
+              Photos for the counter. Not a protection test.
             </p>
           </div>
 
           <ul class="phone-goals">
-            <li><strong>Awareness.</strong> Age, labels, and visible wear stay on the record.</li>
-            <li><strong>Circulation.</strong> Gear that should not be bought in can still be upcycled.</li>
-            <li><strong>The conversation.</strong> A decline opens a trade-in talk, not a dead end.</li>
+            <li><strong>Awareness.</strong> Age, labels, wear.</li>
+            <li><strong>Upcycle.</strong> Leather, zippers, textiles.</li>
+            <li><strong>Trade-in.</strong> A decline still starts a talk.</li>
           </ul>
 
           <div class="phone-category-stack">
@@ -95,12 +94,12 @@
                 <span id="badge-phone-jacket" class="pill pill-cream hidden">Counter Selected</span>
               </div>
               <div>
-                <div class="category-choice-title">Motorcycle Jacket</div>
+                <div class="category-choice-title">Jacket</div>
                 <p class="category-choice-zones">
-                  Zone 1 guides: Shoulders, elbows/forearms, and upper back.
+                  Shoulders, elbows, back.
                 </p>
               </div>
-              <span class="category-choice-cta">Capture Jacket Angles →</span>
+              <span class="category-choice-cta">Start</span>
             </button>
 
             <button
@@ -119,12 +118,12 @@
                 <span id="badge-phone-pants" class="pill pill-cream hidden">Counter Selected</span>
               </div>
               <div>
-                <div class="category-choice-title">Motorcycle Pants</div>
+                <div class="category-choice-title">Pants</div>
                 <p class="category-choice-zones">
-                  Zone 1 guides: Hips/outer thighs, knees, and seat area.
+                  Hips, knees, seat.
                 </p>
               </div>
-              <span class="category-choice-cta">Capture Pants Angles →</span>
+              <span class="category-choice-cta">Start</span>
             </button>
           </div>
         </section>
@@ -140,8 +139,6 @@
             </div>
             <span id="step-status-pill" class="pill pill-neutral">Required</span>
           </div>
-
-          <div id="step-hint" class="hint-card"></div>
 
           <!-- In-Line Photo-ID SVG Viewfinder Box -->
           <div id="viewfinder-box" class="viewfinder-box">
@@ -164,7 +161,7 @@
             <svg
               id="viewfinder-svg"
               class="viewfinder-svg"
-              viewBox="0 0 400 300"
+              viewBox="0 0 300 400"
               preserveAspectRatio="xMidYMid meet"
               aria-hidden="true"
             ></svg>
@@ -192,10 +189,34 @@
             <div id="viewfinder-lock-track" class="viewfinder-lock-track">
               <div id="viewfinder-lock-bar" class="viewfinder-lock-fill"></div>
             </div>
+
+            <div id="step-hint" class="viewfinder-caption"></div>
           </div>
 
           <!-- Defect Multi-Shot Strip (only visible on Defect step) -->
           <div id="phone-defect-gallery" class="defect-strip hidden"></div>
+
+          <form id="mark-choice-form" class="mark-choice hidden">
+            <fieldset class="mark-fieldset">
+              <legend>Does anything look wrong?</legend>
+              <label class="mark-option">
+                <input type="radio" name="mark-seen" value="clear" required aria-invalid="false" />
+                Nothing looks wrong
+              </label>
+              <label class="mark-option">
+                <input type="radio" name="mark-seen" value="mark" required aria-invalid="false" />
+                I see a mark — one damage close-up
+              </label>
+              <p id="mark-choice-error" class="mark-error" hidden>
+                <span aria-hidden="true">Error.</span>
+                Choose whether a mark is visible.
+              </p>
+              <p id="mark-closeup-error" class="mark-error" hidden>
+                <span aria-hidden="true">Error.</span>
+                One damage close-up is required before disclosure.
+              </p>
+            </fieldset>
+          </form>
 
           <!-- Uploading Indicator -->
           <div id="upload-busy" class="toast-banner hidden" role="status" aria-live="polite">
@@ -227,7 +248,7 @@
             class="sr-only"
           />
 
-          <div class="stack" style="gap: 0.56rem;">
+          <div class="stack phone-camera-controls" style="gap: 0.56rem;">
             <button id="btn-snap-photo" type="button" class="btn btn-primary btn-lg btn-block">
               Snap Photo
             </button>
@@ -251,28 +272,27 @@
              ================================================================= -->
         <section id="stage-disclosure" class="capture-stage hidden" aria-live="polite">
           <div>
-            <div class="section-kicker">Final Step · Rider Disclosure</div>
-            <h1 class="section-title">Quick Garment History</h1>
+            <div class="section-kicker">Notes</div>
+            <h1 class="section-title">Crash, use, labels</h1>
             <p class="section-subtitle">
-              Honest disclosure helps Moto Reloaded route every item responsibly — whether for
-              store buy-in or circular upcycling.
+              A crash is declined for buy-in.
             </p>
           </div>
 
           <!-- Missing Angle Warning (non-blocking) -->
           <div id="disclosure-missing-box" class="alert-box is-warn hidden">
-            <div class="alert-title">Some required angles are still missing</div>
+            <div class="alert-title">Photos still missing</div>
             <p id="disclosure-missing-text" style="font-size: 0.85rem; color: var(--fg-secondary);"></p>
             <div>
               <button id="btn-jump-missing" type="button" class="btn btn-secondary btn-sm">
-                Capture Missing Angle
+                Shoot the missing angle
               </button>
             </div>
           </div>
 
           <div class="stack" style="gap: 0.92rem;">
             <div>
-              <span class="field-label">1. Has this garment ever been in a crash?</span>
+              <span class="field-label">Crash?</span>
               <div class="segmented" style="width: 100%;" role="group" aria-label="Crash history">
                 <button
                   type="button"
@@ -281,7 +301,7 @@
                   data-rider-crash="false"
                   aria-pressed="true"
                 >
-                  No Crash History
+                  No
                 </button>
                 <button
                   type="button"
@@ -290,13 +310,13 @@
                   data-rider-crash="true"
                   aria-pressed="false"
                 >
-                  Yes — Crash Involved
+                  Yes
                 </button>
               </div>
             </div>
 
             <div>
-              <span class="field-label">2. Overall riding usage / exposure?</span>
+              <span class="field-label">Use</span>
               <div class="segmented" style="width: 100%;" role="group" aria-label="Usage level">
                 <button
                   type="button"
@@ -329,22 +349,22 @@
             </div>
 
             <div>
-              <label for="rider-notes" class="field-label">3. Short notes (optional)</label>
+              <label for="rider-notes" class="field-label">Notes</label>
               <textarea
                 id="rider-notes"
                 class="textarea"
                 rows="3"
-                placeholder="Approx. year bought, washing care, missing thermal liner, or any repair/wear details…"
+                placeholder="Year, washes, zipper, repairs"
               ></textarea>
             </div>
           </div>
 
           <button id="btn-finish-submit" type="button" class="btn btn-primary btn-lg btn-block">
-            Finish &amp; Send to Counter
+            Send to counter
           </button>
 
           <button id="btn-back-to-photos" type="button" class="btn btn-ghost btn-block">
-            ← Back to Photo Steps
+            ← Back to photos
           </button>
         </section>
 
@@ -361,15 +381,13 @@
           </div>
 
           <div id="complete-waiting" class="stack" style="gap: 0.65rem;">
-            <h1 class="section-title">Photos received by the store counter!</h1>
+            <h1 class="section-title">Photos are at the counter.</h1>
             <p style="font-size: 0.9rem; color: var(--fg-secondary);">
-              Moto Reloaded's counter screen is now generating your
-              <strong>Photo Coverage + Damage Disclosure</strong> score. Keep this tab open to view
-              the summary here too.
+              The <strong>photo coverage</strong> and <strong>damage disclosure</strong> score is on the way.
             </p>
             <div class="elevated-card row-wrap">
               <span class="spinner" aria-hidden="true"></span>
-              <span style="font-size: 0.88rem;">Calculating score &amp; intake routing…</span>
+              <span style="font-size: 0.88rem;">Scoring…</span>
             </div>
           </div>
 
@@ -378,12 +396,13 @@
               <span id="phone-decision-pill" class="pill pill-black" style="align-self: flex-start;">—</span>
               <div id="phone-decision-title" class="decision-title">—</div>
               <p id="phone-decision-summary" class="decision-sub"></p>
+              <p id="phone-decision-goal" class="decision-goal"></p>
             </div>
 
             <div class="elevated-card stack" style="gap: 0.7rem;">
               <div class="row-between">
                 <span style="font-size: 0.84rem; color: var(--fg-secondary); font-weight: 600;">
-                  Photo Coverage + Damage Disclosure Score
+                  Photo coverage + damage disclosure
                 </span>
                 <strong id="phone-score-total" class="tabular" style="font-size: 1.65rem;">0 / 100</strong>
               </div>
@@ -411,16 +430,16 @@
 
             <!-- Retake Action on Phone if 0-49 Retake -->
             <div id="phone-retake-card" class="alert-box is-warn hidden">
-              <div class="alert-title">Retake Flagged Angles</div>
+              <div id="phone-retake-title" class="alert-title">Retake</div>
               <p id="phone-retake-text" style="font-size: 0.86rem; color: var(--fg-secondary);"></p>
               <button id="btn-phone-retake-flagged" type="button" class="btn btn-primary btn-sm">
-                Retake Flagged Photos
+                Retake
               </button>
             </div>
 
             <!-- Upcycling & Retirement Card on Phone if 0-49 Declined -->
             <div id="phone-upcycle-card" class="upcycle-card hidden">
-              <span class="pill pill-reject" style="align-self: flex-start;">Circular Upcycling &amp; Trade-In</span>
+              <span class="pill pill-reject" style="align-self: flex-start;">Upcycle</span>
               <h2 id="phone-upcycle-headline" style="font-size: 1.02rem;">—</h2>
               <p id="phone-upcycle-summary" style="font-size: 0.86rem; color: var(--fg-secondary);"></p>
               <ul id="phone-upcycle-list" class="upcycle-list"></ul>
@@ -435,8 +454,8 @@
   <footer class="site-footer">
     <div class="footer-inner" style="max-width: 540px; padding: 0.85rem 1rem;">
       <p class="disclaimer-text">
-        <strong>Photo Coverage &amp; Damage Disclosure Only:</strong> This app and Moto Reloaded do
-        not assess, certify, test, or guarantee protective performance.
+        <strong>Photo coverage and damage disclosure only.</strong> This app and Moto Reloaded do
+        not test or certify protection.
       </p>
     </div>
   </footer>

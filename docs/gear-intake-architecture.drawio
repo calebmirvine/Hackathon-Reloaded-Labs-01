@@ -1,0 +1,41 @@
+<!-- # Created by Caleb M. Irvine for use by Moto Reloaded -->
+<mxfile host="app.diagrams.net" agent="Grok" version="1.10.0">
+  <diagram id="gear-intake" name="Gear Intake">
+<mxGraphModel dx="900" dy="400" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1060" pageHeight="240" math="0" shadow="0" adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="Gear Intake Checker" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#1B1814;" vertex="1" parent="1">
+      <mxGeometry x="40" y="16" width="420" height="32" as="geometry"/>
+    </mxCell>
+    <mxCell id="nCapture" value="Counter + phone&lt;br&gt;&lt;small&gt;QR, six angles&lt;/small&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2F4F7;strokeColor=#B8C0CC;fontColor=#1B1F24;fontSize=14;" vertex="1" parent="1">
+      <mxGeometry x="40" y="80" width="160" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="nApi" value="FastAPI&lt;br&gt;&lt;small&gt;Upload and score&lt;/small&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEF4FF;strokeColor=#9DB8F2;fontColor=#1B1F24;fontSize=14;" vertex="1" parent="1">
+      <mxGeometry x="240" y="80" width="160" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="nClip" value="OpenCLIP&lt;br&gt;&lt;small&gt;Local angle match&lt;/small&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEF4FF;strokeColor=#9DB8F2;fontColor=#1B1F24;fontSize=14;" vertex="1" parent="1">
+      <mxGeometry x="440" y="80" width="160" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="nVision" value="gpt-4.1&lt;br&gt;&lt;small&gt;Checklist&lt;/small&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2F4F7;strokeColor=#B8C0CC;fontColor=#1B1F24;fontSize=14;" vertex="1" parent="1">
+      <mxGeometry x="640" y="80" width="160" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="nScore" value="0–100 score&lt;br&gt;&lt;small&gt;Log, review, decline&lt;/small&gt;" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#E7F6EC;strokeColor=#8BCB9F;fontColor=#1B1F24;fontSize=14;" vertex="1" parent="1">
+      <mxGeometry x="840" y="80" width="160" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" edge="1" parent="1" source="nCapture" target="nApi">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" edge="1" parent="1" source="nApi" target="nClip">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" edge="1" parent="1" source="nClip" target="nVision">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;labelBackgroundColor=default;defaultLabelBackgroundColor=page;" edge="1" parent="1" source="nVision" target="nScore">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>
+  </diagram>
+</mxfile>
